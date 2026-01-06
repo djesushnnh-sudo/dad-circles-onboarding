@@ -19,6 +19,10 @@ dist-ssr
 .env.test.local
 .env.production.local
 
+# Local development scripts (contain API keys)
+dev-local.bat
+dev-local.ps1
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
