@@ -2,6 +2,7 @@ export enum OnboardingStep {
   WELCOME = 'welcome',
   STATUS = 'status',
   CHILD_INFO = 'child_info',
+  SIBLINGS = 'siblings',
   INTERESTS = 'interests',
   LOCATION = 'location',
   CONFIRM = 'confirm',
@@ -33,6 +34,7 @@ export interface UserProfile {
   location?: UserLocation;
   interests?: string[];
   children: Child[];
+  siblings?: Child[]; // Other existing children
   last_updated: number;
 }
 

@@ -4,9 +4,9 @@ import { getAgentResponse } from '../services/geminiService';
 import { Role, Message, OnboardingStep } from '../types';
 
 const TEST_SESSIONS = [
-  { id: 'session-abc-123', label: 'Persona 1 (Complete)', description: 'Austin, TX dad' },
-  { id: 'session-def-456', label: 'Persona 2 (Confirm Step)', description: 'Lansing, MI expecting' },
-  { id: 'session-ghi-789', label: 'Persona 3 (Child Info)', description: 'Seattle, WA dad' }
+  { id: 'user-a-complete', label: 'User A' },
+  { id: 'user-b-expecting', label: 'User B' },
+  { id: 'user-c-fresh', label: 'User C' }
 ];
 
 export const ChatInterface: React.FC = () => {
@@ -24,9 +24,12 @@ export const ChatInterface: React.FC = () => {
     const existingMessages = db.getMessages(sessionId);
     setMessages(existingMessages);
     
-    // If a session is totally empty (shouldn't happen with mock data, but for new sessions)
+    // Only start onboarding if session is completely empty AND no messages exist
     if (existingMessages.length === 0) {
-      startOnboarding(sessionId);
+      const profile = db.getProfile(sessionId);
+      if (!profile || profile.onboarding_step === OnboardingStep.WELCOME) {
+        startOnboarding(sessionId);
+      }
     }
   }, [sessionId]);
 
@@ -37,22 +40,25 @@ export const ChatInterface: React.FC = () => {
   }, [messages, loading]);
 
   const startOnboarding = async (sid: string) => {
-    setLoading(true);
-    const profile = db.getProfile(sid) || db.createProfile(sid);
-    const result = await getAgentResponse(profile, []);
-    
+    // Check if we already have a welcome message to prevent duplicates
+    const existingMessages = db.getMessages(sid);
+    if (existingMessages.length > 0) {
+      return; // Already has messages, don't add another welcome
+    }
+
+    // Add a simple welcome message without calling AI API
     db.addMessage({
       session_id: sid,
       role: Role.AGENT,
-      content: result.message
+      content: "Hey there! So glad you're here. To get started, are you an expecting dad or a current dad?"
     });
     
+    // Update profile to STATUS step since we asked the question
     db.updateProfile(sid, { 
-      onboarding_step: result.next_step as OnboardingStep 
+      onboarding_step: OnboardingStep.STATUS 
     });
 
     setMessages(db.getMessages(sid));
-    setLoading(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -70,33 +76,58 @@ export const ChatInterface: React.FC = () => {
     setMessages(db.getMessages(sessionId));
 
     setLoading(true);
-    const profile = db.getProfile(sessionId)!;
-    const history = db.getMessages(sessionId);
-    
-    const result = await getAgentResponse(profile, history);
+    try {
+      const profile = db.getProfile(sessionId)!;
+      const history = db.getMessages(sessionId);
+      
+      const result = await getAgentResponse(profile, history);
 
-    if (result.profile_updates) {
-      db.updateProfile(sessionId, result.profile_updates);
+      if (result.profile_updates) {
+        db.updateProfile(sessionId, result.profile_updates);
+      }
+
+      const nextStep = result.next_step as OnboardingStep;
+      db.updateProfile(sessionId, { 
+        onboarding_step: nextStep,
+        onboarded: nextStep === OnboardingStep.COMPLETE
+      });
+
+      db.addMessage({
+        session_id: sessionId,
+        role: Role.AGENT,
+        content: result.message
+      });
+
+      setMessages(db.getMessages(sessionId));
+    } catch (error) {
+      console.error('Error getting response:', error);
+      // Fallback response if API fails
+      db.addMessage({
+        session_id: sessionId,
+        role: Role.AGENT,
+        content: "I'm having a little trouble processing that. Could you try again or rephrase your response?"
+      });
+      setMessages(db.getMessages(sessionId));
     }
-
-    const nextStep = result.next_step as OnboardingStep;
-    db.updateProfile(sessionId, { 
-      onboarding_step: nextStep,
-      onboarded: nextStep === OnboardingStep.COMPLETE
-    });
-
-    db.addMessage({
-      session_id: sessionId,
-      role: Role.AGENT,
-      content: result.message
-    });
-
-    setMessages(db.getMessages(sessionId));
     setLoading(false);
   };
 
   const currentProfile = db.getProfile(sessionId);
   const isComplete = currentProfile?.onboarding_step === OnboardingStep.COMPLETE;
+
+  const getStatusLabel = (step: OnboardingStep) => {
+    switch (step) {
+      case OnboardingStep.WELCOME: return 'Welcome';
+      case OnboardingStep.STATUS: return 'Status';
+      case OnboardingStep.CHILD_INFO: return 'Child Info';
+      case OnboardingStep.SIBLINGS: return 'Siblings';
+      case OnboardingStep.INTERESTS: return 'Interests';
+      case OnboardingStep.LOCATION: return 'Location';
+      case OnboardingStep.CONFIRM: return 'Confirm';
+      case OnboardingStep.COMPLETE: return 'Complete';
+      default: return 'Welcome';
+    }
+  };
 
   return (
     <div className="flex flex-col h-[calc(100vh-160px)] gap-4">
@@ -105,19 +136,28 @@ export const ChatInterface: React.FC = () => {
         <span className="text-[10px] font-bold uppercase text-slate-400 px-2 flex items-center gap-1">
           <i className="fas fa-flask"></i> Test Persona:
         </span>
-        {TEST_SESSIONS.map((session) => (
-          <button
-            key={session.id}
-            onClick={() => setSessionId(session.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex flex-col items-start ${
-              sessionId === session.id 
-                ? 'bg-blue-600 text-white shadow-md' 
-                : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <span>{session.label}</span>
-          </button>
-        ))}
+        {TEST_SESSIONS.map((session) => {
+          const profile = db.getProfile(session.id);
+          const status = profile ? getStatusLabel(profile.onboarding_step) : 'Welcome';
+          return (
+            <button
+              key={session.id}
+              onClick={() => setSessionId(session.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex flex-col items-start ${
+                sessionId === session.id 
+                  ? 'bg-blue-600 text-white shadow-md' 
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span>{session.label}</span>
+              <span className={`text-[10px] opacity-75 ${
+                sessionId === session.id ? 'text-blue-100' : 'text-slate-400'
+              }`}>
+                ({status})
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
