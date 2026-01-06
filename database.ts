@@ -20,6 +20,7 @@ interface DatabaseInterface {
   
   // Database management
   initializeDatabase: () => void;
+  migrateProfiles: () => void;
   seedTestData: () => void;
   resetDatabase: () => void;
 }
@@ -34,7 +35,6 @@ const seedProfiles: Record<string, UserProfile> = {
     onboarded: false,
     onboarding_step: OnboardingStep.WELCOME,
     children: [],
-    siblings: [],
     last_updated: Date.now() - 1000 * 60 * 60 * 2 // 2 hours ago
   },
   'user-b-expecting': {
@@ -42,7 +42,6 @@ const seedProfiles: Record<string, UserProfile> = {
     onboarded: false,
     onboarding_step: OnboardingStep.WELCOME,
     children: [],
-    siblings: [],
     last_updated: Date.now() - 1000 * 60 * 30 // 30 mins ago
   },
   'user-c-fresh': {
@@ -50,7 +49,6 @@ const seedProfiles: Record<string, UserProfile> = {
     onboarded: false,
     onboarding_step: OnboardingStep.WELCOME,
     children: [],
-    siblings: [],
     last_updated: Date.now() - 1000 * 60 * 5 // 5 mins ago
   }
 };
@@ -68,7 +66,25 @@ export const database: DatabaseInterface = {
   // Initialize database with seed data
   initializeDatabase: () => {
     console.log('Initializing database...');
+    database.migrateProfiles(); // Migrate any existing data
     database.seedTestData();
+  },
+
+  // Migrate existing profiles to new structure (remove siblings field, consolidate into children)
+  migrateProfiles: () => {
+    Object.keys(profiles).forEach(sessionId => {
+      const profile = profiles[sessionId];
+      if ((profile as any).siblings && (profile as any).siblings.length > 0) {
+        // Move siblings to children array with type "existing"
+        const siblings = (profile as any).siblings.map((sibling: any) => ({
+          ...sibling,
+          type: 'existing'
+        }));
+        profile.children = [...(profile.children || []), ...siblings];
+        delete (profile as any).siblings;
+        console.log(`Migrated profile ${sessionId}: moved ${siblings.length} siblings to children array`);
+      }
+    });
   },
 
   // Seed test data as per spec
@@ -93,7 +109,6 @@ export const database: DatabaseInterface = {
       onboarded: false,
       onboarding_step: OnboardingStep.WELCOME,
       children: [],
-      siblings: [],
       last_updated: Date.now()
     };
     profiles[sessionId] = newProfile;
