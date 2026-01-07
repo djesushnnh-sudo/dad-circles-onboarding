@@ -17,20 +17,47 @@ export const ChatInterface: React.FC = () => {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [currentProfile, setCurrentProfile] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loadMessages = async (sid: string) => {
+    try {
+      const existingMessages = await db.getMessages(sid);
+      setMessages(existingMessages);
+      return existingMessages;
+    } catch (error) {
+      console.error('Error loading messages:', error);
+      return [];
+    }
+  };
+
+  const loadProfile = async (sid: string) => {
+    try {
+      const profile = await db.getProfile(sid);
+      setCurrentProfile(profile);
+      return profile;
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      return null;
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('dad_circles_active_test_session', sessionId);
-    const existingMessages = db.getMessages(sessionId);
-    setMessages(existingMessages);
     
-    // Only start onboarding if session is completely empty AND no messages exist
-    if (existingMessages.length === 0) {
-      const profile = db.getProfile(sessionId);
-      if (!profile || profile.onboarding_step === OnboardingStep.WELCOME) {
-        startOnboarding(sessionId);
+    const initializeSession = async () => {
+      const existingMessages = await loadMessages(sessionId);
+      const profile = await loadProfile(sessionId);
+      
+      // Only start onboarding if session is completely empty AND no messages exist
+      if (existingMessages.length === 0) {
+        if (!profile || profile.onboarding_step === OnboardingStep.WELCOME) {
+          await startOnboarding(sessionId);
+        }
       }
-    }
+    };
+
+    initializeSession();
   }, [sessionId]);
 
   useEffect(() => {
@@ -40,25 +67,30 @@ export const ChatInterface: React.FC = () => {
   }, [messages, loading]);
 
   const startOnboarding = async (sid: string) => {
-    // Check if we already have a welcome message to prevent duplicates
-    const existingMessages = db.getMessages(sid);
-    if (existingMessages.length > 0) {
-      return; // Already has messages, don't add another welcome
+    try {
+      // Check if we already have a welcome message to prevent duplicates
+      const existingMessages = await db.getMessages(sid);
+      if (existingMessages.length > 0) {
+        return; // Already has messages, don't add another welcome
+      }
+
+      // Add a simple welcome message without calling AI API
+      await db.addMessage({
+        session_id: sid,
+        role: Role.AGENT,
+        content: "Hey there! So glad you're here. To get started, are you an expecting dad or a current dad?"
+      });
+      
+      // Update profile to STATUS step since we asked the question
+      await db.updateProfile(sid, { 
+        onboarding_step: OnboardingStep.STATUS 
+      });
+
+      await loadMessages(sid);
+      await loadProfile(sid);
+    } catch (error) {
+      console.error('Error starting onboarding:', error);
     }
-
-    // Add a simple welcome message without calling AI API
-    db.addMessage({
-      session_id: sid,
-      role: Role.AGENT,
-      content: "Hey there! So glad you're here. To get started, are you an expecting dad or a current dad?"
-    });
-    
-    // Update profile to STATUS step since we asked the question
-    db.updateProfile(sid, { 
-      onboarding_step: OnboardingStep.STATUS 
-    });
-
-    setMessages(db.getMessages(sid));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -68,51 +100,56 @@ export const ChatInterface: React.FC = () => {
     const userMsg = input.trim();
     setInput('');
     
-    db.addMessage({
-      session_id: sessionId,
-      role: Role.USER,
-      content: userMsg
-    });
-    setMessages(db.getMessages(sessionId));
-
-    setLoading(true);
     try {
-      const profile = db.getProfile(sessionId)!;
-      const history = db.getMessages(sessionId);
+      await db.addMessage({
+        session_id: sessionId,
+        role: Role.USER,
+        content: userMsg
+      });
+      await loadMessages(sessionId);
+
+      setLoading(true);
+      
+      const profile = await db.getProfile(sessionId);
+      if (!profile) {
+        throw new Error('Profile not found');
+      }
+      
+      const history = await db.getMessages(sessionId);
       
       const result = await getAgentResponse(profile, history);
 
       if (result.profile_updates) {
-        db.updateProfile(sessionId, result.profile_updates);
+        await db.updateProfile(sessionId, result.profile_updates);
       }
 
       const nextStep = result.next_step as OnboardingStep;
-      db.updateProfile(sessionId, { 
+      await db.updateProfile(sessionId, { 
         onboarding_step: nextStep,
         onboarded: nextStep === OnboardingStep.COMPLETE
       });
 
-      db.addMessage({
+      await db.addMessage({
         session_id: sessionId,
         role: Role.AGENT,
         content: result.message
       });
 
-      setMessages(db.getMessages(sessionId));
+      await loadMessages(sessionId);
+      await loadProfile(sessionId);
     } catch (error) {
       console.error('Error getting response:', error);
       // Fallback response if API fails
-      db.addMessage({
+      await db.addMessage({
         session_id: sessionId,
         role: Role.AGENT,
         content: "I'm having a little trouble processing that. Could you try again or rephrase your response?"
       });
-      setMessages(db.getMessages(sessionId));
+      await loadMessages(sessionId);
     }
     setLoading(false);
   };
 
-  const currentProfile = db.getProfile(sessionId);
   const isComplete = currentProfile?.onboarding_step === OnboardingStep.COMPLETE;
 
   const getStatusLabel = (step: OnboardingStep) => {
@@ -137,8 +174,9 @@ export const ChatInterface: React.FC = () => {
           <i className="fas fa-flask"></i> Test Persona:
         </span>
         {TEST_SESSIONS.map((session) => {
-          const profile = db.getProfile(session.id);
-          const status = profile ? getStatusLabel(profile.onboarding_step) : 'Welcome';
+          const status = currentProfile && sessionId === session.id 
+            ? getStatusLabel(currentProfile.onboarding_step) 
+            : 'Loading...';
           return (
             <button
               key={session.id}

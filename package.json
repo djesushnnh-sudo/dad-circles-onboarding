@@ -7,10 +7,13 @@
     "dev": "vite",
     "dev:local": "cross-env VITE_GEMINI_API_KEY=your_api_key_here vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "emulator": "firebase emulators:start",
+    "emulator:seed": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
+    "firebase": "^12.7.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.11.0"

@@ -159,7 +159,11 @@ CRITICAL:
     throw new Error('Gemini API key not found');
   }
 
-  const models = [
+  // Primary model: Gemini 3 Pro (non-thinking mode)
+  const primaryModel = { name: 'gemini-3-pro-preview', version: 'v1beta' };
+  
+  // Fallback models (after 5 failed attempts with primary)
+  const fallbackModels = [
     { name: 'gemini-2.5-flash', version: 'v1beta' },
     { name: 'gemini-2.0-flash-exp', version: 'v1beta' },
     { name: 'gemini-flash-latest', version: 'v1beta' },
@@ -167,13 +171,14 @@ CRITICAL:
   ];
 
   let lastError = null;
+  const maxPrimaryAttempts = 5;
 
-  for (let i = 0; i < models.length; i++) {
-    const { name: model, version } = models[i];
-    console.log(`Trying model: ${model} with API version ${version} (attempt ${i + 1}/${models.length})`);
+  // First, try Gemini 3 Pro up to 5 times
+  for (let attempt = 1; attempt <= maxPrimaryAttempts; attempt++) {
+    console.log(`Trying primary model: ${primaryModel.name} (attempt ${attempt}/${maxPrimaryAttempts})`);
 
     try {
-      const apiUrl = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${apiKey}`;
+      const apiUrl = `https://generativelanguage.googleapis.com/${primaryModel.version}/models/${primaryModel.name}:generateContent?key=${apiKey}`;
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -193,54 +198,52 @@ CRITICAL:
         })
       });
 
-      console.log(`${model} - API Response status:`, response.status);
+      console.log(`${primaryModel.name} - API Response status:`, response.status);
 
       if (response.status === 503 || response.status === 429) {
-        console.log(`${model} is overloaded or rate limited, trying next model...`);
-        if (i === models.length - 1) {
-          return createFallbackResponse(profile, history);
+        console.log(`${primaryModel.name} is overloaded or rate limited (attempt ${attempt}/${maxPrimaryAttempts})`);
+        if (attempt === maxPrimaryAttempts) {
+          console.log('Primary model failed 5 times, switching to fallback models...');
+          break; // Exit primary model loop, try fallbacks
         }
+        // Wait a bit before retrying primary model
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         continue;
-      }
-
-      if (response.status === 400) {
-        const errorText = await response.text();
-        console.error(`${model} - API Error Response:`, errorText);
-
-        if (errorText.includes('quota') || errorText.includes('billing') || errorText.includes('API key not valid')) {
-          console.log('API quota or billing issue detected, trying next model...');
-          if (i === models.length - 1) {
-            return createFallbackResponse(profile, history);
-          }
-          continue;
-        }
       }
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`${model} - API Error Response:`, errorText);
-        lastError = new Error(`API request failed: ${response.status} - ${errorText}`);
-        if (i === models.length - 1) {
-          return createFallbackResponse(profile, history);
+        console.error(`${primaryModel.name} - API Error Response:`, errorText);
+
+        if (response.status === 400 && (errorText.includes('quota') || errorText.includes('billing') || errorText.includes('API key not valid'))) {
+          console.log('API quota or billing issue detected with primary model, switching to fallbacks...');
+          break; // Exit primary model loop, try fallbacks
+        }
+
+        lastError = new Error(`Primary model API request failed: ${response.status} - ${errorText}`);
+        if (attempt === maxPrimaryAttempts) {
+          console.log('Primary model exhausted all attempts, switching to fallbacks...');
+          break; // Exit primary model loop, try fallbacks
         }
         continue;
       }
 
       const data = await response.json();
-      console.log(`${model} - API Response data:`, data);
+      console.log(`${primaryModel.name} - API Response data:`, data);
 
       if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts.length > 0) {
         let responseText = data.candidates[0].content.parts[0].text;
-        console.log('Raw API response text:', responseText);
+        console.log('Raw API response text from primary model:', responseText);
 
         responseText = responseText.replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
-        console.log('Cleaned response text:', responseText);
+        console.log('Cleaned response text from primary model:', responseText);
 
         try {
           if (!responseText || responseText.trim() === '') {
-            console.log('Empty response from API, trying next model...');
-            if (i === models.length - 1) {
-              return createFallbackResponse(profile, history);
+            console.log('Empty response from primary model, retrying...');
+            if (attempt === maxPrimaryAttempts) {
+              console.log('Primary model exhausted, switching to fallbacks...');
+              break;
             }
             continue;
           }
@@ -248,7 +251,7 @@ CRITICAL:
           const result = JSON.parse(responseText);
 
           if (result.message && (result.message.includes('Status:') || result.message.includes("Here's what I have"))) {
-            console.log('Detected confirmation message, fixing line breaks...');
+            console.log('Detected confirmation message from primary model, fixing line breaks...');
 
             let fixedMessage = result.message
               .replace(/\\n/g, '\n')
@@ -266,14 +269,14 @@ CRITICAL:
               .replace(/Is this correct\?/g, '\n\nIs this correct?');
 
             result.message = fixedMessage;
-            console.log('Fixed message with line breaks:', result.message);
+            console.log('Fixed message with line breaks from primary model:', result.message);
           }
 
-          console.log(`API Success with ${model} - Parsed result:`, result);
+          console.log(`✅ API Success with primary model ${primaryModel.name} - Parsed result:`, result);
           return result;
 
         } catch (parseError) {
-          console.log('JSON parse failed, attempting to fix malformed JSON...');
+          console.log('JSON parse failed with primary model, attempting to fix malformed JSON...');
 
           let fixedJson = responseText
             .replace(/\n/g, '\\n')
@@ -300,11 +303,173 @@ CRITICAL:
               result.message = fixedMessage;
             }
 
-            console.log(`API Success with ${model} - Parsed result:`, result);
+            console.log(`✅ API Success with primary model ${primaryModel.name} - Parsed result:`, result);
             return result;
           } catch (secondParseError) {
-            console.error('Failed to parse JSON even after fixing:', secondParseError);
-            if (i === models.length - 1) {
+            console.error('Failed to parse JSON from primary model even after fixing:', secondParseError);
+            if (attempt === maxPrimaryAttempts) {
+              console.log('Primary model JSON parsing exhausted, switching to fallbacks...');
+              break;
+            }
+            continue;
+          }
+        }
+      } else {
+        console.error(`${primaryModel.name} - Invalid API response structure:`, data);
+        if (attempt === maxPrimaryAttempts) {
+          console.log('Primary model invalid response structure, switching to fallbacks...');
+          break;
+        }
+        continue;
+      }
+    } catch (error) {
+      console.error(`${primaryModel.name} - Error (attempt ${attempt}/${maxPrimaryAttempts}):`, error);
+      lastError = error;
+      if (attempt === maxPrimaryAttempts) {
+        console.log('Primary model failed all attempts, switching to fallbacks...');
+        break;
+      }
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+
+  // If primary model failed 5 times, try fallback models
+  console.log('🔄 Primary model (Gemini 3 Pro) failed after 5 attempts. Switching to fallback models...');
+  
+  for (let i = 0; i < fallbackModels.length; i++) {
+    const { name: model, version } = fallbackModels[i];
+    console.log(`Trying fallback model: ${model} with API version ${version} (fallback ${i + 1}/${fallbackModels.length})`);
+
+    try {
+      const apiUrl = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${apiKey}`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: fullPrompt }]
+          }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 512,
+            topP: 0.8,
+            topK: 20
+          }
+        })
+      });
+
+      console.log(`${model} - API Response status:`, response.status);
+
+      if (response.status === 503 || response.status === 429) {
+        console.log(`${model} is overloaded or rate limited, trying next fallback model...`);
+        if (i === fallbackModels.length - 1) {
+          return createFallbackResponse(profile, history);
+        }
+        continue;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`${model} - API Error Response:`, errorText);
+
+        if (response.status === 400 && (errorText.includes('quota') || errorText.includes('billing') || errorText.includes('API key not valid'))) {
+          console.log('API quota or billing issue detected, trying next fallback model...');
+          if (i === fallbackModels.length - 1) {
+            return createFallbackResponse(profile, history);
+          }
+          continue;
+        }
+
+        lastError = new Error(`Fallback API request failed: ${response.status} - ${errorText}`);
+        if (i === fallbackModels.length - 1) {
+          return createFallbackResponse(profile, history);
+        }
+        continue;
+      }
+
+      const data = await response.json();
+      console.log(`${model} - API Response data:`, data);
+
+      if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts.length > 0) {
+        let responseText = data.candidates[0].content.parts[0].text;
+        console.log('Raw API response text from fallback model:', responseText);
+
+        responseText = responseText.replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
+        console.log('Cleaned response text from fallback model:', responseText);
+
+        try {
+          if (!responseText || responseText.trim() === '') {
+            console.log('Empty response from fallback API, trying next model...');
+            if (i === fallbackModels.length - 1) {
+              return createFallbackResponse(profile, history);
+            }
+            continue;
+          }
+
+          const result = JSON.parse(responseText);
+
+          if (result.message && (result.message.includes('Status:') || result.message.includes("Here's what I have"))) {
+            console.log('Detected confirmation message from fallback model, fixing line breaks...');
+
+            let fixedMessage = result.message
+              .replace(/\\n/g, '\n')
+              .replace(/\n+/g, ' ')
+              .trim();
+
+            fixedMessage = fixedMessage
+              .replace(/Perfect! Here's what I have:/g, "Perfect! Here's what I have:\n\n")
+              .replace(/Status:/g, 'Status:')
+              .replace(/Children:/g, '\nChildren:')
+              .replace(/Interests:/g, '\nInterests:')
+              .replace(/Location:/g, '\nLocation:')
+              .replace(/Does everything look correct\?/g, '\n\nDoes everything look correct?')
+              .replace(/Does this look correct\?/g, '\n\nDoes this look correct?')
+              .replace(/Is this correct\?/g, '\n\nIs this correct?');
+
+            result.message = fixedMessage;
+            console.log('Fixed message with line breaks from fallback model:', result.message);
+          }
+
+          console.log(`🎯 API Success with fallback model ${model} - Parsed result:`, result);
+          return result;
+
+        } catch (parseError) {
+          console.log('JSON parse failed with fallback model, attempting to fix malformed JSON...');
+
+          let fixedJson = responseText
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+
+          try {
+            const result = JSON.parse(fixedJson);
+
+            if (result.message && (result.message.includes('Status:') || result.message.includes("Here's what I have"))) {
+              let fixedMessage = result.message
+                .replace(/\\n/g, '\n')
+                .replace(/\n+/g, ' ')
+                .trim();
+
+              fixedMessage = fixedMessage
+                .replace(/Perfect! Here's what I have:/g, "Perfect! Here's what I have:\n\n")
+                .replace(/Status:/g, 'Status:')
+                .replace(/Children:/g, '\nChildren:')
+                .replace(/Interests:/g, '\nInterests:')
+                .replace(/Location:/g, '\nLocation:')
+                .replace(/Does everything look correct\?/g, '\n\nDoes everything look correct?');
+
+              result.message = fixedMessage;
+            }
+
+            console.log(`🎯 API Success with fallback model ${model} - Parsed result:`, result);
+            return result;
+          } catch (secondParseError) {
+            console.error('Failed to parse JSON from fallback model even after fixing:', secondParseError);
+            if (i === fallbackModels.length - 1) {
               return createFallbackResponse(profile, history);
             }
             continue;
@@ -312,27 +477,27 @@ CRITICAL:
         }
       } else {
         console.error(`${model} - Invalid API response structure:`, data);
-        if (i === models.length - 1) {
+        if (i === fallbackModels.length - 1) {
           return createFallbackResponse(profile, history);
         }
         continue;
       }
     } catch (error) {
-      console.error(`${model} - Error:`, error);
+      console.error(`${model} - Fallback Error:`, error);
       lastError = error;
-      if (i === models.length - 1) {
+      if (i === fallbackModels.length - 1) {
         return createFallbackResponse(profile, history);
       }
     }
   }
 
+  // If all models failed, return fallback response
+  console.error('🚨 All models failed (primary + fallbacks). Using hardcoded fallback response.');
   return createFallbackResponse(profile, history);
 };
 
 const createFallbackResponse = (profile: UserProfile, history: Message[]) => {
   console.log('Creating fallback response for step:', profile.onboarding_step);
-
-  const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
 
   switch (profile.onboarding_step) {
     case 'welcome':

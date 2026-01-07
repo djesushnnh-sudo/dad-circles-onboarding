@@ -1,194 +1,157 @@
+import { db } from './firebase';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  addDoc,
+  query,
+  where,
+  orderBy,
+} from 'firebase/firestore';
 import { UserProfile, Message, OnboardingStep, Role } from './types';
 
-// SQLite Database Implementation
-// This will replace the in-memory store with persistent SQLite storage
+// Firestore collections
+const profilesCol = collection(db, 'profiles');
+const messagesCol = collection(db, 'messages');
 
 interface DatabaseInterface {
   // Profiles
-  getProfile: (sessionId: string) => UserProfile | undefined;
-  createProfile: (sessionId: string) => UserProfile;
-  updateProfile: (sessionId: string, updates: Partial<UserProfile>) => UserProfile;
-  getAllProfiles: () => UserProfile[];
+  getProfile: (sessionId: string) => Promise<UserProfile | undefined>;
+  createProfile: (sessionId: string) => Promise<UserProfile>;
+  updateProfile: (sessionId: string, updates: Partial<UserProfile>) => Promise<UserProfile>;
+  getAllProfiles: () => Promise<UserProfile[]>;
   
   // Messages
-  addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => Message;
-  getMessages: (sessionId: string) => Message[];
-  getAllMessages: () => Message[];
+  addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => Promise<Message>;
+  getMessages: (sessionId: string) => Promise<Message[]>;
+  getAllMessages: () => Promise<Message[]>;
   
-  // Admin SQL queries
-  executeQuery: (query: string) => any[];
-  
-  // Database management
-  initializeDatabase: () => void;
-  migrateProfiles: () => void;
-  seedTestData: () => void;
-  resetDatabase: () => void;
+  // Database management (dev/emulator only)
+  seedTestData?: () => Promise<void>;
+  resetDatabase?: () => Promise<void>;
 }
 
-// For now, we'll use enhanced in-memory storage that mimics SQLite structure
-// This can be easily replaced with actual SQLite later
-
-// Enhanced seed data - ALL FRESH for testing
-const seedProfiles: Record<string, UserProfile> = {
-  'user-a-complete': {
-    session_id: 'user-a-complete',
-    onboarded: false,
-    onboarding_step: OnboardingStep.WELCOME,
-    children: [],
-    last_updated: Date.now() - 1000 * 60 * 60 * 2 // 2 hours ago
-  },
-  'user-b-expecting': {
-    session_id: 'user-b-expecting',
-    onboarded: false,
-    onboarding_step: OnboardingStep.WELCOME,
-    children: [],
-    last_updated: Date.now() - 1000 * 60 * 30 // 30 mins ago
-  },
-  'user-c-fresh': {
-    session_id: 'user-c-fresh',
-    onboarded: false,
-    onboarding_step: OnboardingStep.WELCOME,
-    children: [],
-    last_updated: Date.now() - 1000 * 60 * 5 // 5 mins ago
-  }
-};
-
-const seedMessages: Message[] = [
-  // All users start completely fresh with no message history
-];
-
-// In-memory storage that mimics SQLite structure
-let profiles: Record<string, UserProfile> = {};
-let messages: Message[] = [];
-let messageIdCounter = 1000;
-
 export const database: DatabaseInterface = {
-  // Initialize database with seed data
-  initializeDatabase: () => {
-    console.log('Initializing database...');
-    database.migrateProfiles(); // Migrate any existing data
-    database.seedTestData();
-  },
-
-  // Migrate existing profiles to new structure (remove siblings field, consolidate into children)
-  migrateProfiles: () => {
-    Object.keys(profiles).forEach(sessionId => {
-      const profile = profiles[sessionId];
-      if ((profile as any).siblings && (profile as any).siblings.length > 0) {
-        // Move siblings to children array with type "existing"
-        const siblings = (profile as any).siblings.map((sibling: any) => ({
-          ...sibling,
-          type: 'existing'
-        }));
-        profile.children = [...(profile.children || []), ...siblings];
-        delete (profile as any).siblings;
-        console.log(`Migrated profile ${sessionId}: moved ${siblings.length} siblings to children array`);
-      }
-    });
-  },
-
-  // Seed test data as per spec
-  seedTestData: () => {
-    profiles = { ...seedProfiles };
-    messages = [...seedMessages];
-    messageIdCounter = 1000; // Reset message counter
-    console.log('Seeded database with test data:', {
-      profiles: Object.keys(profiles).length,
-      messages: messages.length
-    });
-  },
-
   // Profile operations
-  getProfile: (sessionId: string): UserProfile | undefined => {
-    return profiles[sessionId];
+  getProfile: async (sessionId: string): Promise<UserProfile | undefined> => {
+    const ref = doc(profilesCol, sessionId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return undefined;
+    return snap.data() as UserProfile;
   },
-  
-  createProfile: (sessionId: string): UserProfile => {
+
+  createProfile: async (sessionId: string): Promise<UserProfile> => {
     const newProfile: UserProfile = {
       session_id: sessionId,
       onboarded: false,
       onboarding_step: OnboardingStep.WELCOME,
       children: [],
-      last_updated: Date.now()
+      last_updated: Date.now(),
     };
-    profiles[sessionId] = newProfile;
+    const ref = doc(profilesCol, sessionId);
+    await setDoc(ref, newProfile);
     return newProfile;
   },
 
-  updateProfile: (sessionId: string, updates: Partial<UserProfile>): UserProfile => {
-    const profile = profiles[sessionId] || database.createProfile(sessionId);
-    profiles[sessionId] = { ...profile, ...updates, last_updated: Date.now() };
-    return profiles[sessionId];
+  updateProfile: async (sessionId: string, updates: Partial<UserProfile>): Promise<UserProfile> => {
+    const existing = (await database.getProfile(sessionId)) ?? 
+                    (await database.createProfile(sessionId));
+    const updated: UserProfile = {
+      ...existing,
+      ...updates,
+      last_updated: Date.now(),
+    };
+    const ref = doc(profilesCol, sessionId);
+    await setDoc(ref, updated, { merge: true });
+    return updated;
   },
 
-  getAllProfiles: (): UserProfile[] => {
-    return Object.values(profiles).sort((a, b) => b.last_updated - a.last_updated);
+  getAllProfiles: async (): Promise<UserProfile[]> => {
+    const q = query(profilesCol, orderBy('last_updated', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as UserProfile);
   },
 
   // Message operations
-  addMessage: (msg: Omit<Message, 'id' | 'timestamp'>): Message => {
-    const newMessage: Message = {
+  addMessage: async (msg: Omit<Message, 'id' | 'timestamp'>): Promise<Message> => {
+    const withTimestamp = {
       ...msg,
-      id: `msg-${messageIdCounter++}`,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
-    messages.push(newMessage);
+    const docRef = await addDoc(messagesCol, withTimestamp);
+    const newMessage: Message = {
+      ...withTimestamp,
+      id: docRef.id,
+    };
+    await setDoc(doc(messagesCol, docRef.id), newMessage);
     return newMessage;
   },
 
-  getMessages: (sessionId: string): Message[] => {
-    return messages.filter(m => m.session_id === sessionId).sort((a, b) => a.timestamp - b.timestamp);
+  getMessages: async (sessionId: string): Promise<Message[]> => {
+    const q = query(
+      messagesCol,
+      where('session_id', '==', sessionId),
+      orderBy('timestamp', 'asc')
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as Message);
   },
 
-  getAllMessages: (): Message[] => {
-    return messages.sort((a, b) => a.timestamp - b.timestamp);
+  getAllMessages: async (): Promise<Message[]> => {
+    const q = query(messagesCol, orderBy('timestamp', 'asc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as Message);
   },
 
-  // Admin SQL query interface (simulated)
-  executeQuery: (query: string): any[] => {
-    const lowerQuery = query.toLowerCase().trim();
-    
-    try {
-      if (lowerQuery.startsWith('select * from profiles') || lowerQuery.startsWith('select * from userprofile')) {
-        return Object.values(profiles);
-      }
-      
-      if (lowerQuery.startsWith('select * from messages') || lowerQuery.startsWith('select * from message')) {
-        return messages;
-      }
-      
-      if (lowerQuery.includes('count') && lowerQuery.includes('profiles')) {
-        return [{ count: Object.keys(profiles).length }];
-      }
-      
-      if (lowerQuery.includes('count') && lowerQuery.includes('messages')) {
-        return [{ count: messages.length }];
-      }
-      
-      // Simple WHERE clauses
-      if (lowerQuery.includes('where onboarded = true')) {
-        return Object.values(profiles).filter(p => p.onboarded);
-      }
-      
-      if (lowerQuery.includes('where onboarded = false')) {
-        return Object.values(profiles).filter(p => !p.onboarded);
-      }
-      
-      return [{ error: 'Query not supported in demo mode' }];
-    } catch (error) {
-      return [{ error: `Query error: ${error.message}` }];
+  // Development/testing methods (only use with emulator)
+  seedTestData: async (): Promise<void> => {
+    if (import.meta.env.PROD) {
+      console.warn('Seeding disabled in production');
+      return;
     }
+    
+    const seedProfiles = [
+      {
+        session_id: 'user-a-complete',
+        onboarded: false,
+        onboarding_step: OnboardingStep.WELCOME,
+        children: [],
+        last_updated: Date.now() - 1000 * 60 * 60 * 2 // 2 hours ago
+      },
+      {
+        session_id: 'user-b-expecting',
+        onboarded: false,
+        onboarding_step: OnboardingStep.WELCOME,
+        children: [],
+        last_updated: Date.now() - 1000 * 60 * 30 // 30 mins ago
+      },
+      {
+        session_id: 'user-c-fresh',
+        onboarded: false,
+        onboarding_step: OnboardingStep.WELCOME,
+        children: [],
+        last_updated: Date.now() - 1000 * 60 * 5 // 5 mins ago
+      }
+    ];
+
+    for (const profile of seedProfiles) {
+      const ref = doc(profilesCol, profile.session_id);
+      await setDoc(ref, profile);
+    }
+    
+    console.log('Seeded test data to Firestore');
   },
 
-  // Database management
-  resetDatabase: () => {
-    console.log('Resetting database to fresh state...');
-    database.seedTestData();
+  resetDatabase: async (): Promise<void> => {
+    if (import.meta.env.PROD) {
+      console.warn('Reset disabled in production');
+      return;
+    }
+    
+    // Note: In a real app, you'd want to batch delete documents
+    // For now, this is just a placeholder
+    console.log('Reset database (implement batch delete for emulator use)');
   }
 };
-
-// Initialize database on import
-database.initializeDatabase();
-
-// Reset to fresh state for testing
-database.resetDatabase();

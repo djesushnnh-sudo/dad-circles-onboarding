@@ -10,31 +10,55 @@ export const AdminDashboard: React.FC = () => {
   const [sqlQuery, setSqlQuery] = useState('');
   const [queryResults, setQueryResults] = useState<any[]>([]);
   const [showSqlPanel, setShowSqlPanel] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const loadProfiles = async () => {
+    try {
+      const allProfiles = await db.getAllProfiles();
+      setProfiles(allProfiles);
+    } catch (error) {
+      console.error('Error loading profiles:', error);
+    }
+  };
+
+  const loadMessages = async (sessionId: string) => {
+    try {
+      const sessionMessages = await db.getMessages(sessionId);
+      setMessages(sessionMessages);
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    }
+  };
 
   useEffect(() => {
-    setProfiles(db.getAllProfiles());
+    loadProfiles();
   }, []);
 
   useEffect(() => {
     if (selectedSession) {
-      setMessages(db.getMessages(selectedSession));
+      loadMessages(selectedSession);
     }
   }, [selectedSession]);
 
-  const handleInjectMessage = (e: React.FormEvent) => {
+  const handleInjectMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSession || !adminInput.trim()) return;
+    if (!selectedSession || !adminInput.trim() || loading) return;
 
-    db.addMessage({
-      session_id: selectedSession,
-      role: Role.ADMIN,
-      content: adminInput.trim()
-    });
+    setLoading(true);
+    try {
+      await db.addMessage({
+        session_id: selectedSession,
+        role: Role.ADMIN,
+        content: adminInput.trim()
+      });
 
-    setAdminInput('');
-    setMessages(db.getMessages(selectedSession));
-    // Trigger update in sidebar
-    setProfiles(db.getAllProfiles());
+      setAdminInput('');
+      await loadMessages(selectedSession);
+      await loadProfiles(); // Refresh profiles list
+    } catch (error) {
+      console.error('Error injecting message:', error);
+    }
+    setLoading(false);
   };
 
   const handleSqlQuery = (e: React.FormEvent) => {
@@ -124,7 +148,7 @@ export const AdminDashboard: React.FC = () => {
                 <i className="fas fa-database text-xs"></i>
               </button>
               <button 
-                onClick={() => setProfiles(db.getAllProfiles())}
+                onClick={loadProfiles}
                 className="text-slate-400 hover:text-blue-600 transition p-1"
                 title="Refresh list"
               >
@@ -221,9 +245,9 @@ export const AdminDashboard: React.FC = () => {
                 </div>
                 <div className="flex gap-2">
                   <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${
-                    db.getProfile(selectedSession)?.onboarded ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
+                    profiles.find(p => p.session_id === selectedSession)?.onboarded ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
                   }`}>
-                    {db.getProfile(selectedSession)?.onboarding_step}
+                    {profiles.find(p => p.session_id === selectedSession)?.onboarding_step}
                   </span>
                 </div>
               </div>
@@ -265,10 +289,10 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                   <button 
                     type="submit"
-                    disabled={!adminInput.trim()}
+                    disabled={!adminInput.trim() || loading}
                     className="bg-amber-600 hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 text-white px-6 rounded-xl transition text-sm font-bold shadow-sm shadow-amber-500/10"
                   >
-                    Inject
+                    {loading ? 'Injecting...' : 'Inject'}
                   </button>
                 </div>
               </form>
