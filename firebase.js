@@ -21,7 +21,7 @@ export const db = getFirestore(app);
 // Connect to Firestore emulator in development mode (Java 21+ is installed)
 if (import.meta.env.DEV) {
   try {
-    connectFirestoreEmulator(db, 'localhost', 8081);
+    connectFirestoreEmulator(db, 'localhost', 8082);
     console.log('Connected to Firestore emulator');
   } catch (error) {
     console.log('Firestore emulator connection failed or already connected:', error.message);
