@@ -7,11 +7,10 @@ const getApiKey = () => {
   console.log('- VITE_GEMINI_API_KEY:', import.meta.env.VITE_GEMINI_API_KEY);
   
   // Get API key from environment variable (set in .env file)
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyCChStfaMwFVQ0pR_JT_IK6pyPSnpbBV38";
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   
-  if (!apiKey || apiKey === 'your_api_key_here') {
+  if (!apiKey) {
     console.error('GEMINI API key not found. Please set VITE_GEMINI_API_KEY in your .env file');
-    console.error('Current value:', apiKey);
     return null;
   }
   
