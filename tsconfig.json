@@ -30,6 +30,11 @@
   },
   "include": [
     "src/**/*",
+    "components/**/*",
+    "services/**/*",
+    "utils/**/*",
+    "config/**/*",
+    "api/**/*",
     "*.ts",
     "*.tsx"
   ],

@@ -45,3 +45,12 @@ export interface Message {
   role: Role;
   content: string;
 }
+
+export interface Lead {
+  id?: string;
+  email: string;
+  postcode: string;
+  signupForOther: boolean;
+  timestamp: number;
+  source: 'landing_page';
+}

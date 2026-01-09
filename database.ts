@@ -10,11 +10,12 @@ import {
   where,
   orderBy,
 } from 'firebase/firestore';
-import { UserProfile, Message, OnboardingStep, Role } from './types';
+import { UserProfile, Message, OnboardingStep, Role, Lead } from './types';
 
 // Firestore collections
 const profilesCol = collection(db, 'profiles');
 const messagesCol = collection(db, 'messages');
+const leadsCol = collection(db, 'leads');
 
 interface DatabaseInterface {
   // Profiles
@@ -27,6 +28,10 @@ interface DatabaseInterface {
   addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => Promise<Message>;
   getMessages: (sessionId: string) => Promise<Message[]>;
   getAllMessages: () => Promise<Message[]>;
+  
+  // Leads
+  addLead: (lead: Omit<Lead, 'id' | 'timestamp'>) => Promise<Lead>;
+  getAllLeads: () => Promise<Lead[]>;
   
   // Database management (dev/emulator only)
   seedTestData?: () => Promise<void>;
@@ -103,6 +108,27 @@ export const database: DatabaseInterface = {
     const q = query(messagesCol, orderBy('timestamp', 'asc'));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data() as Message);
+  },
+
+  // Lead operations
+  addLead: async (lead: Omit<Lead, 'id' | 'timestamp'>): Promise<Lead> => {
+    const withTimestamp = {
+      ...lead,
+      timestamp: Date.now(),
+    };
+    const docRef = await addDoc(leadsCol, withTimestamp);
+    const newLead: Lead = {
+      ...withTimestamp,
+      id: docRef.id,
+    };
+    await setDoc(doc(leadsCol, docRef.id), newLead);
+    return newLead;
+  },
+
+  getAllLeads: async (): Promise<Lead[]> => {
+    const q = query(leadsCol, orderBy('timestamp', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as Lead);
   },
 
   // Development/testing methods (only use with emulator)
