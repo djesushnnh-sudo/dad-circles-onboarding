@@ -186,21 +186,20 @@ CRITICAL:
     throw new Error('Gemini API key not found');
   }
 
-  // Primary model: Gemini 3 Pro (non-thinking mode)
+  // Primary model: Gemini 3 Pro Preview (as requested)
   const primaryModel = { name: 'gemini-3-pro-preview', version: 'v1beta' };
   
   // Fallback models (after 5 failed attempts with primary)
   const fallbackModels = [
-    { name: 'gemini-2.5-flash', version: 'v1beta' },
-    { name: 'gemini-2.0-flash-exp', version: 'v1beta' },
-    { name: 'gemini-flash-latest', version: 'v1beta' },
-    { name: 'gemini-2.5-pro', version: 'v1beta' }
+    { name: 'gemini-1.5-pro', version: 'v1beta' },
+    { name: 'gemini-1.0-pro', version: 'v1' },
+    { name: 'gemini-pro', version: 'v1' }
   ];
 
   let lastError = null;
   const maxPrimaryAttempts = 5;
 
-  // First, try Gemini 3 Pro up to 5 times
+  // First, try Gemini 3 Pro Preview up to 5 times
   for (let attempt = 1; attempt <= maxPrimaryAttempts; attempt++) {
     console.log(`Trying primary model: ${primaryModel.name} (attempt ${attempt}/${maxPrimaryAttempts})`);
 
@@ -258,8 +257,35 @@ CRITICAL:
       const data = await response.json();
       console.log(`${primaryModel.name} - API Response data:`, data);
 
-      if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts.length > 0) {
-        let responseText = data.candidates[0].content.parts[0].text;
+      // Handle both old and new API response structures
+      let responseText = null;
+      
+      if (data.candidates && data.candidates.length > 0) {
+        const candidate = data.candidates[0];
+        
+        // New API structure (direct text in candidate)
+        if (candidate.text) {
+          responseText = candidate.text;
+        }
+        // Old API structure (nested in content.parts)
+        else if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          responseText = candidate.content.parts[0].text;
+        }
+        // Alternative structure (parts directly in candidate)
+        else if (candidate.parts && candidate.parts.length > 0) {
+          responseText = candidate.parts[0].text;
+        }
+        // Gemini 3 Pro Preview specific structure
+        else if (candidate.output) {
+          responseText = candidate.output;
+        }
+        // Another possible structure
+        else if (candidate.message) {
+          responseText = candidate.message;
+        }
+      }
+      
+      if (responseText) {
         console.log('Raw API response text from primary model:', responseText);
 
         responseText = responseText.replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
@@ -362,7 +388,7 @@ CRITICAL:
   }
 
   // If primary model failed 5 times, try fallback models
-  console.log('🔄 Primary model (Gemini 3 Pro) failed after 5 attempts. Switching to fallback models...');
+  console.log('🔄 Primary model (Gemini 3 Pro Preview) failed after 5 attempts. Switching to fallback models...');
   
   for (let i = 0; i < fallbackModels.length; i++) {
     const { name: model, version } = fallbackModels[i];
@@ -421,8 +447,27 @@ CRITICAL:
       const data = await response.json();
       console.log(`${model} - API Response data:`, data);
 
-      if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts.length > 0) {
-        let responseText = data.candidates[0].content.parts[0].text;
+      // Handle both old and new API response structures
+      let responseText = null;
+      
+      if (data.candidates && data.candidates.length > 0) {
+        const candidate = data.candidates[0];
+        
+        // New API structure (direct text in candidate)
+        if (candidate.text) {
+          responseText = candidate.text;
+        }
+        // Old API structure (nested in content.parts)
+        else if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          responseText = candidate.content.parts[0].text;
+        }
+        // Alternative structure (parts directly in candidate)
+        else if (candidate.parts && candidate.parts.length > 0) {
+          responseText = candidate.parts[0].text;
+        }
+      }
+      
+      if (responseText) {
         console.log('Raw API response text from fallback model:', responseText);
 
         responseText = responseText.replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
