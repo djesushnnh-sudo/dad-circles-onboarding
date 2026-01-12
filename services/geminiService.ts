@@ -1,4 +1,6 @@
 import { UserProfile, Message } from "../types";
+import { limitMessageContext } from "./contextManager";
+import { contextAnalytics } from "../utils/contextAnalytics";
 
 const getApiKey = () => {
   // Debug environment variables
@@ -93,8 +95,34 @@ complete: Once confirmed:
   - ONLY REACH THIS STEP AFTER USER EXPLICITLY CONFIRMS IN THE CONFIRM STEP`;
 
 export const getAgentResponse = async (profile: UserProfile, history: Message[]) => {
-  const recentHistory = history.slice(-6);
-  const conversationContext = recentHistory.map(m => `${m.role}: ${m.content}`).join('\n');
+  // Use smart context management instead of simple slice
+  const startTime = Date.now();
+  const limitedHistory = limitMessageContext(history, { 
+    maxMessages: 50,  // Keep 50 messages total
+    preserveFirst: 5, // Keep first 5 messages (onboarding start)
+    preserveRecent: 45 // Keep last 45 messages (recent conversation)
+  });
+  const processingTime = Date.now() - startTime;
+
+  // Record analytics for monitoring
+  if (history.length > 50) {
+    contextAnalytics.recordOperation(
+      profile.session_id,
+      'chat_context_limit',
+      {
+        originalCount: history.length,
+        limitedCount: limitedHistory.length,
+        removedCount: history.length - limitedHistory.length,
+        compressionRatio: limitedHistory.length / history.length,
+        preservedFirstCount: Math.min(5, history.length),
+        preservedRecentCount: Math.min(45, history.length)
+      },
+      'chat',
+      processingTime
+    );
+  }
+
+  const conversationContext = limitedHistory.map(m => `${m.role}: ${m.content}`).join('\n');
 
   const fullPrompt = `${SYSTEM_PROMPT}
 

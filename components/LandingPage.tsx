@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { handleLeadRequest } from '../api/leads';
 
 const LandingPage: React.FC = () => {
@@ -8,6 +8,17 @@ const LandingPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,27 +53,27 @@ const LandingPage: React.FC = () => {
   };
 
   return (
-    <div style={styles.body}>
-      <div style={styles.logo}>
-        <div style={styles.logoSquare}>DC</div>
-        <div style={styles.logoText}>DadCircles</div>
+    <div style={getStyles(isMobile).body}>
+      <div style={getStyles(isMobile).logo}>
+        <div style={getStyles(isMobile).logoSquare}>DC</div>
+        <div style={getStyles(isMobile).logoText}>DadCircles</div>
       </div>
       
-      <div style={styles.container}>
-        <div style={styles.content}>
-          <h1 style={styles.h1}>Find Your Dad Squad</h1>
-          <p style={styles.description}>
+      <div style={getStyles(isMobile).container}>
+        <div style={getStyles(isMobile).content}>
+          <h1 style={getStyles(isMobile).h1}>Find Your Dad Squad</h1>
+          <p style={getStyles(isMobile).description}>
             Connect with new dads nearby who share your interests. Join local circles, plan activities, and build lasting friendships.
           </p>
           
-          <form style={styles.emailForm} onSubmit={handleSubmit}>
+          <form style={getStyles(isMobile).emailForm} onSubmit={handleSubmit}>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Enter your email"
               required
-              style={styles.inputEmail}
+              style={getStyles(isMobile).inputEmail}
             />
             <input
               type="text"
@@ -70,73 +81,75 @@ const LandingPage: React.FC = () => {
               onChange={(e) => setPostcode(e.target.value)}
               placeholder="Your postcode"
               required
-              style={styles.inputText}
+              style={getStyles(isMobile).inputText}
             />
             <button 
               type="submit" 
               disabled={isSubmitting}
-              style={styles.button}
+              style={getStyles(isMobile).button}
             >
               {isSubmitting ? 'Joining...' : 'Join Waitlist'}
             </button>
           </form>
           
-          <div style={styles.toggleContainer}>
+          <div style={getStyles(isMobile).toggleContainer}>
             <input
               type="checkbox"
               id="signupForOther"
               checked={signupForOther}
               onChange={(e) => setSignupForOther(e.target.checked)}
-              style={styles.checkbox}
+              style={getStyles(isMobile).checkbox}
             />
-            <label htmlFor="signupForOther" style={styles.checkboxLabel}>
+            <label htmlFor="signupForOther" style={getStyles(isMobile).checkboxLabel}>
               I'm signing up for someone else
             </label>
           </div>
           
-          <p style={styles.privacyNote}>
+          <p style={getStyles(isMobile).privacyNote}>
             We'll contact you to find a local parent group. No spam, ever.
           </p>
           
           {showSuccess && (
-            <div style={{...styles.successMessage, ...styles.successMessageShow}}>
+            <div style={{...getStyles(isMobile).successMessage, ...getStyles(isMobile).successMessageShow}}>
               ✓ Thanks! You're on the list. We'll be in touch soon.
             </div>
           )}
           
           {errorMessage && (
-            <div style={styles.errorMessage}>
+            <div style={getStyles(isMobile).errorMessage}>
               ⚠ {errorMessage}
             </div>
           )}
         </div>
         
-        <div style={styles.phoneMockup}>
-          <div style={styles.phoneFrame}>
-            <div style={styles.phoneNotch}></div>
-            <div style={styles.phoneScreen}>
-              <img 
-                src="/images/network-visualization.png" 
-                alt="Dad Circles Network Visualization"
-                style={styles.phoneScreenImg}
-                onError={(e) => {
-                  // Fallback to placeholder if image doesn't load
-                  (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='600' viewBox='0 0 300 600'%3E%3Crect width='300' height='600' fill='%23667eea'/%3E%3Ctext x='150' y='300' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3EDad Circles%3C/text%3E%3Ctext x='150' y='330' text-anchor='middle' fill='white' font-size='14' font-family='Arial'%3ENetwork%3C/text%3E%3C/svg%3E";
-                }}
-              />
+        {!isMobile && (
+          <div style={getStyles(isMobile).phoneMockup}>
+            <div style={getStyles(isMobile).phoneFrame}>
+              <div style={getStyles(isMobile).phoneNotch}></div>
+              <div style={getStyles(isMobile).phoneScreen}>
+                <img 
+                  src="/images/network-visualization.png" 
+                  alt="Dad Circles Network Visualization"
+                  style={getStyles(isMobile).phoneScreenImg}
+                  onError={(e) => {
+                    // Fallback to placeholder if image doesn't load
+                    (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='600' viewBox='0 0 300 600'%3E%3Crect width='300' height='600' fill='%23667eea'/%3E%3Ctext x='150' y='300' text-anchor='middle' fill='white' font-size='20' font-family='Arial'%3EDad Circles%3C/text%3E%3Ctext x='150' y='330' text-anchor='middle' fill='white' font-size='14' font-family='Arial'%3ENetwork%3C/text%3E%3C/svg%3E";
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
       
-      <div style={styles.disclaimer}>
+      <div style={getStyles(isMobile).disclaimer}>
         DadCircles is in early alpha
       </div>
     </div>
   );
 };
 
-const styles = {
+const getStyles = (isMobile: boolean) => ({
   body: {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif',
     background: 'white',
@@ -144,7 +157,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '20px',
+    padding: isMobile ? '80px 20px 20px' : '20px',
     position: 'relative' as const,
     margin: 0,
   },
@@ -178,15 +191,16 @@ const styles = {
     maxWidth: '1200px',
     width: '100%',
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '60px',
+    gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+    gap: isMobile ? '40px' : '60px',
     alignItems: 'center',
   },
   content: {
     color: '#1a1a1a',
+    textAlign: isMobile ? 'center' as const : 'left' as const,
   },
   h1: {
-    fontSize: '3.5rem',
+    fontSize: isMobile ? '2.5rem' : '3.5rem',
     fontWeight: 700,
     marginBottom: '24px',
     lineHeight: 1.1,
@@ -196,13 +210,14 @@ const styles = {
     backgroundClip: 'text',
   },
   description: {
-    fontSize: '1.25rem',
+    fontSize: isMobile ? '1.1rem' : '1.25rem',
     marginBottom: '32px',
     color: '#4a5568',
     lineHeight: 1.6,
   },
   emailForm: {
     display: 'flex',
+    flexDirection: isMobile ? 'column' as const : 'row' as const,
     gap: '12px',
     marginBottom: '16px',
   },
@@ -227,6 +242,7 @@ const styles = {
   toggleContainer: {
     display: 'flex',
     alignItems: 'center',
+    justifyContent: isMobile ? 'center' : 'flex-start',
     gap: '10px',
     marginBottom: '20px',
     padding: '12px',
@@ -255,6 +271,7 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
     transition: 'transform 0.2s, box-shadow 0.2s',
+    width: isMobile ? '100%' : 'auto',
   },
   privacyNote: {
     fontSize: '0.875rem',
@@ -331,6 +348,6 @@ const styles = {
     height: '100%',
     objectFit: 'cover' as const,
   },
-};
+});
 
 export default LandingPage;
