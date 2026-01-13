@@ -33,3 +33,4 @@ dev-local.ps1
 *.njsproj
 *.sln
 *.sw?
+.firebase/hosting.ZGlzdA.cache
