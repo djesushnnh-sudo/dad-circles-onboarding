@@ -53,4 +53,15 @@ export interface Lead {
   signupForOther: boolean;
   timestamp: number;
   source: 'landing_page';
+  
+  // Email tracking fields
+  welcomeEmailSent?: boolean;
+  welcomeEmailSentAt?: any; // Firestore timestamp
+  welcomeEmailFailed?: boolean;
+  welcomeEmailFailedAt?: any; // Firestore timestamp
+  
+  followUpEmailSent?: boolean;
+  followUpEmailSentAt?: any; // Firestore timestamp
+  followUpEmailFailed?: boolean;
+  followUpEmailFailedAt?: any; // Firestore timestamp
 }

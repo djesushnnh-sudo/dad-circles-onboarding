@@ -19,6 +19,8 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
 // Connect to Firestore emulator in development mode (Java 21+ is installed)
+// Temporarily disabled for email testing
+/*
 if (import.meta.env.DEV) {
   try {
     connectFirestoreEmulator(db, 'localhost', 8082);
@@ -27,3 +29,4 @@ if (import.meta.env.DEV) {
     console.log('Firestore emulator connection failed or already connected:', error.message);
   }
 }
+*/

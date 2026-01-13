@@ -111,7 +111,7 @@ const LandingPage: React.FC = () => {
           
           {showSuccess && (
             <div style={{...getStyles(isMobile).successMessage, ...getStyles(isMobile).successMessageShow}}>
-              ✓ Thanks! You're on the list. We'll be in touch soon.
+              ✓ Thanks! You're on the list. Check your email for a welcome message.
             </div>
           )}
           
