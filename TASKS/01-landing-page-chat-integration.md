@@ -2,7 +2,7 @@
 
 ## 🎯 Goal
 
-Connect the landing page signup form to the chat interface so users can immediately start conversational onboarding. **Priority: Get core functionality working, not UI polish.** Target completion: under 3 hours.
+Connect the landing page signup form to the chat interface so users can immediately start conversational onboarding. **Priority: Get core functionality working, not UI polish.** 
 
 ## 💡 Implementation Tips (Read This First!)
 
