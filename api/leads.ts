@@ -2,7 +2,8 @@
 // Handles landing page form submissions
 
 import { database } from '../database';
-import { Lead } from '../types';
+import { Lead, OnboardingStep } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface LeadRequest {
   email: string;
@@ -14,6 +15,7 @@ export interface LeadResponse {
   success: boolean;
   message: string;
   leadId?: string;
+  sessionId?: string; // Added for chat navigation
 }
 
 // Validation helpers
@@ -63,31 +65,91 @@ export const handleLeadRequest = async (request: LeadRequest): Promise<LeadRespo
     const sanitizedEmail = sanitizeInput(email);
     const sanitizedPostcode = postcode.trim().toUpperCase();
     
-    // Check for duplicate email (optional - you might want to allow duplicates)
-    const existingLeads = await database.getAllLeads();
-    const duplicateEmail = existingLeads.find(lead => lead.email === sanitizedEmail);
+    // Check for existing lead with this email
+    const existingLead = await database.getLeadByEmail(sanitizedEmail);
     
-    if (duplicateEmail) {
-      return {
-        success: false,
-        message: 'This email is already on our waitlist'
-      };
+    if (existingLead) {
+      // If signupForOther is false and they already have a session, return it
+      if (!signupForOther && existingLead.session_id) {
+        console.log('Returning user with existing session:', existingLead.session_id);
+        return {
+          success: true,
+          message: 'Welcome back! Resuming your session.',
+          leadId: existingLead.id,
+          sessionId: existingLead.session_id
+        };
+      }
+      
+      // If signupForOther is true, just acknowledge
+      if (signupForOther) {
+        return {
+          success: true,
+          message: 'This email is already on our waitlist'
+        };
+      }
+      
+      // If they don't have a session yet but signupForOther is false, create one
+      if (!existingLead.session_id && !signupForOther) {
+        const sessionId = uuidv4();
+        
+        // Update the lead with session_id
+        await database.updateLead(existingLead.id!, { session_id: sessionId });
+        
+        // Create UserProfile
+        await database.updateProfile(sessionId, {
+          email: sanitizedEmail,
+          onboarding_step: OnboardingStep.WELCOME,
+          onboarded: false
+        });
+        
+        console.log('Created session for existing lead:', sessionId);
+        
+        return {
+          success: true,
+          message: 'Successfully added to waitlist',
+          leadId: existingLead.id,
+          sessionId: sessionId
+        };
+      }
     }
     
-    // Create the lead
-    const newLead = await database.addLead({
+    // Create new lead
+    let sessionId: string | undefined = undefined;
+    
+    // Only create session if signupForOther is false
+    if (!signupForOther) {
+      sessionId = uuidv4();
+    }
+    
+    // Build lead data - only include session_id if it exists
+    const leadData: Omit<Lead, 'id' | 'timestamp'> = {
       email: sanitizedEmail,
       postcode: sanitizedPostcode,
       signupForOther: Boolean(signupForOther),
-      source: 'landing_page'
-    });
+      source: 'landing_page',
+      ...(sessionId && { session_id: sessionId })
+    };
     
-    console.log('New lead created:', newLead.id);
+    const newLead = await database.addLead(leadData);
+    
+    // If not signing up for others, create UserProfile
+    if (!signupForOther && sessionId) {
+      await database.updateProfile(sessionId, {
+        email: sanitizedEmail,
+        onboarding_step: OnboardingStep.WELCOME,
+        onboarded: false
+      });
+      
+      console.log('New lead and profile created with session:', sessionId);
+    } else {
+      console.log('New lead created (signup for other):', newLead.id);
+    }
     
     return {
       success: true,
       message: 'Successfully added to waitlist',
-      leadId: newLead.id
+      leadId: newLead.id,
+      sessionId: sessionId
     };
     
   } catch (error) {

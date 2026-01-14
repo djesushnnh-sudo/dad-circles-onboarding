@@ -29,6 +29,7 @@ export interface UserLocation {
 
 export interface UserProfile {
   session_id: string;
+  email?: string;
   onboarded: boolean;
   onboarding_step: OnboardingStep;
   location?: UserLocation;
@@ -51,6 +52,7 @@ export interface Lead {
   email: string;
   postcode: string;
   signupForOther: boolean;
+  session_id?: string; // Links to UserProfile for non-signupForOther leads
   timestamp: number;
   source: 'landing_page';
   

@@ -167,3 +167,24 @@ const session_id = uuidv4();
 2. Tested on actual mobile device (not just DevTools)
 3. Deployed to Firebase
 4. Can complete full user journey: landing page → chat → onboarding → FAQ mode
+
+
+---
+
+## # Further Clarification
+
+### Seamless Onboarding to FAQ Transition
+- **No clear delineator** between onboarding and FAQ mode
+- When onboarding completes (reaches COMPLETE step), the agent should send a natural message like:
+  - "We've got all the information we need. You should expect to get an email from us shortly with information about matching you to your group."
+- If the user continues asking questions after this message, silently switch to FAQ mode:
+  - Different system prompt (answers questions about DadCircles)
+  - Different rate limiting
+  - Should feel like one continuous conversation, not a mode switch
+
+### Email Sending Temporarily Disabled
+- The Resend email integration that sends welcome emails on signup has been **temporarily commented out** for easier testing
+- Location: `functions/src/index.ts` in the `sendWelcomeEmail` function
+- Reason: Avoid spamming test emails during development
+- Note: We may re-implement this email to trigger **after** the chat onboarding flow completes instead of immediately on signup
+- For now, the function just logs that it would have sent an email

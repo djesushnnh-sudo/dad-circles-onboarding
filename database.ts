@@ -32,6 +32,8 @@ interface DatabaseInterface {
   // Leads
   addLead: (lead: Omit<Lead, 'id' | 'timestamp'>) => Promise<Lead>;
   getAllLeads: () => Promise<Lead[]>;
+  getLeadByEmail: (email: string) => Promise<Lead | undefined>;
+  updateLead: (leadId: string, updates: Partial<Lead>) => Promise<Lead>;
   
   // Database management (dev/emulator only)
   seedTestData?: () => Promise<void>;
@@ -129,6 +131,20 @@ export const database: DatabaseInterface = {
     const q = query(leadsCol, orderBy('timestamp', 'desc'));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data() as Lead);
+  },
+
+  getLeadByEmail: async (email: string): Promise<Lead | undefined> => {
+    const q = query(leadsCol, where('email', '==', email.toLowerCase()));
+    const snap = await getDocs(q);
+    if (snap.empty) return undefined;
+    return snap.docs[0].data() as Lead;
+  },
+
+  updateLead: async (leadId: string, updates: Partial<Lead>): Promise<Lead> => {
+    const ref = doc(leadsCol, leadId);
+    await setDoc(ref, updates, { merge: true });
+    const snap = await getDoc(ref);
+    return snap.data() as Lead;
   },
 
   // Development/testing methods (only use with emulator)

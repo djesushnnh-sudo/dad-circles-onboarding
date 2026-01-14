@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { handleLeadRequest } from '../api/leads';
 
 const LandingPage: React.FC = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [postcode, setPostcode] = useState('');
   const [signupForOther, setSignupForOther] = useState(false);
@@ -33,15 +35,22 @@ const LandingPage: React.FC = () => {
       });
 
       if (response.success) {
-        setShowSuccess(true);
-        setEmail('');
-        setPostcode('');
-        setSignupForOther(false);
-        
-        // Hide success message after 5 seconds
-        setTimeout(() => {
-          setShowSuccess(false);
-        }, 5000);
+        // If signupForOther is false and we have a sessionId, navigate to chat
+        if (!signupForOther && response.sessionId) {
+          console.log('Navigating to chat with session:', response.sessionId);
+          navigate(`/chat?session=${response.sessionId}`);
+        } else {
+          // Otherwise show success message and stay on landing page
+          setShowSuccess(true);
+          setEmail('');
+          setPostcode('');
+          setSignupForOther(false);
+          
+          // Hide success message after 5 seconds
+          setTimeout(() => {
+            setShowSuccess(false);
+          }, 5000);
+        }
       } else {
         setErrorMessage(response.message);
       }
@@ -157,35 +166,41 @@ const getStyles = (isMobile: boolean) => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: isMobile ? '80px 20px 20px' : '20px',
+    padding: isMobile ? '70px 16px 60px' : '20px',
     position: 'relative' as const,
     margin: 0,
+    overflowX: 'hidden',
   },
   logo: {
     position: 'fixed' as const,
-    top: '24px',
-    left: '24px',
+    top: isMobile ? '16px' : '24px',
+    left: isMobile ? '16px' : '24px',
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
+    gap: isMobile ? '8px' : '12px',
     zIndex: 10,
+    maxWidth: isMobile ? 'calc(100vw - 32px)' : 'auto',
   },
   logoSquare: {
-    width: '40px',
-    height: '40px',
+    width: isMobile ? '32px' : '40px',
+    height: isMobile ? '32px' : '40px',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    borderRadius: '8px',
+    borderRadius: isMobile ? '6px' : '8px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: 'white',
     fontWeight: 700,
-    fontSize: '1.25rem',
+    fontSize: isMobile ? '1rem' : '1.25rem',
+    flexShrink: 0,
   },
   logoText: {
-    fontSize: '1.25rem',
+    fontSize: isMobile ? '1rem' : '1.25rem',
     fontWeight: 600,
     color: '#1a1a1a',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   container: {
     maxWidth: '1200px',
@@ -200,20 +215,24 @@ const getStyles = (isMobile: boolean) => ({
     textAlign: isMobile ? 'center' as const : 'left' as const,
   },
   h1: {
-    fontSize: isMobile ? '2.5rem' : '3.5rem',
+    fontSize: isMobile ? '2rem' : '3.5rem',
     fontWeight: 700,
-    marginBottom: '24px',
-    lineHeight: 1.1,
+    marginBottom: '20px',
+    lineHeight: 1.2,
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     WebkitBackgroundClip: 'text',
     WebkitTextFillColor: 'transparent',
     backgroundClip: 'text',
+    wordWrap: 'break-word',
+    overflowWrap: 'break-word',
   },
   description: {
-    fontSize: isMobile ? '1.1rem' : '1.25rem',
-    marginBottom: '32px',
+    fontSize: isMobile ? '1rem' : '1.25rem',
+    marginBottom: '28px',
     color: '#4a5568',
     lineHeight: 1.6,
+    wordWrap: 'break-word',
+    overflowWrap: 'break-word',
   },
   emailForm: {
     display: 'flex',
@@ -223,21 +242,25 @@ const getStyles = (isMobile: boolean) => ({
   },
   inputEmail: {
     flex: 1,
-    padding: '16px 20px',
+    padding: '14px 16px',
     border: '2px solid #e2e8f0',
     borderRadius: '12px',
     fontSize: '1rem',
     outline: 'none',
     transition: 'border-color 0.3s, box-shadow 0.3s',
+    minWidth: 0,
+    boxSizing: 'border-box' as const,
   },
   inputText: {
     flex: 1,
-    padding: '16px 20px',
+    padding: '14px 16px',
     border: '2px solid #e2e8f0',
     borderRadius: '12px',
     fontSize: '1rem',
     outline: 'none',
     transition: 'border-color 0.3s, box-shadow 0.3s',
+    minWidth: 0,
+    boxSizing: 'border-box' as const,
   },
   toggleContainer: {
     display: 'flex',
@@ -256,13 +279,15 @@ const getStyles = (isMobile: boolean) => ({
     accentColor: '#667eea',
   },
   checkboxLabel: {
-    fontSize: '0.95rem',
+    fontSize: '0.9rem',
     color: '#4a5568',
     cursor: 'pointer',
     userSelect: 'none' as const,
+    wordWrap: 'break-word',
+    overflowWrap: 'break-word',
   },
   button: {
-    padding: '16px 32px',
+    padding: '14px 28px',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     color: 'white',
     border: 'none',
@@ -272,6 +297,7 @@ const getStyles = (isMobile: boolean) => ({
     cursor: 'pointer',
     transition: 'transform 0.2s, box-shadow 0.2s',
     width: isMobile ? '100%' : 'auto',
+    boxSizing: 'border-box' as const,
   },
   privacyNote: {
     fontSize: '0.875rem',

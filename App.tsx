@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { ChatInterface } from './components/ChatInterface';
 import { AdminDashboard } from './components/AdminDashboard';
 import LandingPage from './components/LandingPage';
+import UserChatInterface from './components/UserChatInterface';
 
 const App: React.FC = () => {
   return (
@@ -11,6 +12,9 @@ const App: React.FC = () => {
       <Routes>
         {/* Landing page - no layout wrapper */}
         <Route path="/" element={<LandingPage />} />
+        
+        {/* User chat - no layout wrapper */}
+        <Route path="/chat" element={<UserChatInterface />} />
         
         {/* Admin routes - with layout */}
         <Route path="/admin/*" element={

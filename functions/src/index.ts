@@ -92,6 +92,11 @@ export const sendWelcomeEmail = onDocumentCreated(
         htmlLength: emailTemplate.html.length
       });
 
+      // TODO: Re-enable after chat flow - temporarily disabled for testing
+      // We may move this email to trigger after the chat onboarding is complete
+      // instead of immediately on signup. Commenting out to avoid spam during development.
+      
+      /*
       DebugLogger.info("🚀 Attempting to send email via Resend");
       const success = await EmailService.sendEmail(emailTemplate);
 
@@ -127,6 +132,14 @@ export const sendWelcomeEmail = onDocumentCreated(
           welcomeEmailFailedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
+      */
+      
+      // Temporarily just log that we would have sent an email
+      DebugLogger.info("📧 Email sending skipped (commented out for testing)");
+      logger.info("Would have sent welcome email", {
+        leadId: event.params.leadId,
+        email,
+      });
     } catch (error) {
       logger.error("Welcome email function error:", error);
     }

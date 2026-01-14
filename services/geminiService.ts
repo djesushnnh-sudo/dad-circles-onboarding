@@ -1,4 +1,4 @@
-import { UserProfile, Message } from "../types";
+import { UserProfile, Message, OnboardingStep } from "../types";
 import { limitMessageContext } from "./contextManager";
 import { contextAnalytics } from "../utils/contextAnalytics";
 
@@ -90,11 +90,43 @@ If the user responds ambiguously, re-present the summary with proper line breaks
 complete: Once confirmed:
   - Set onboarded = true
   - Set onboarding_step = complete
-  - Send a completion message: "You're officially onboarded! Welcome to Dad Circles — sit tight while we find a group that's a great fit for you."
+  - Send a completion message: "We've got all the information we need. You should expect to get an email from us shortly with information about matching you to your group. In the meantime, feel free to ask me any questions you might have about Dad Circles!"
+  - After this message, if user continues asking questions, switch to FAQ mode (see below).
   - Do not ask any more onboarding questions.
   - ONLY REACH THIS STEP AFTER USER EXPLICITLY CONFIRMS IN THE CONFIRM STEP`;
 
+const FAQ_SYSTEM_PROMPT = `You are the Dad Circles FAQ Assistant. The user has completed onboarding and may have questions about Dad Circles.
+
+YOUR ROLE:
+- Answer questions about Dad Circles, dad groups, how matching works, what to expect, etc.
+- Be warm, friendly, and helpful
+- Keep responses concise and conversational
+- If you don't know something specific, be honest and suggest they'll get more info via email
+
+ABOUT DAD CIRCLES:
+- Dad Circles connects new dads with local groups based on location, interests, and children's ages
+- Groups typically have 6-10 dads who meet regularly for activities
+- Matching is done by the Dad Circles team based on the onboarding information
+- Users will receive an email with their group match and next steps
+- Activities vary by group: playdates, sports, coffee meetups, outdoor adventures, etc.
+
+RESPONSE FORMAT:
+Respond in valid JSON format:
+{
+  "message": "Your helpful response to the user's question",
+  "next_step": "complete",
+  "profile_updates": {}
+}
+
+CRITICAL:
+- Always set next_step to "complete" (stay in FAQ mode)
+- Never collect more onboarding information
+- Keep profile_updates empty unless user explicitly wants to update something`;
+
 export const getAgentResponse = async (profile: UserProfile, history: Message[]) => {
+  // Determine if we should use FAQ mode
+  const isFAQMode = profile.onboarding_step === OnboardingStep.COMPLETE && profile.onboarded;
+  
   // Use smart context management instead of simple slice
   const startTime = Date.now();
   const limitedHistory = limitMessageContext(history, { 
@@ -124,7 +156,10 @@ export const getAgentResponse = async (profile: UserProfile, history: Message[])
 
   const conversationContext = limitedHistory.map(m => `${m.role}: ${m.content}`).join('\n');
 
-  const fullPrompt = `${SYSTEM_PROMPT}
+  // Choose the appropriate system prompt
+  const systemPrompt = isFAQMode ? FAQ_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  
+  const fullPrompt = `${systemPrompt}
 
 Current Profile State: ${JSON.stringify(profile)}
 Onboarding Step: ${profile.onboarding_step}
@@ -632,7 +667,7 @@ const createFallbackResponse = (profile: UserProfile, history: Message[]) => {
 
     case 'complete':
       return {
-        message: "You're officially onboarded! Welcome to Dad Circles — sit tight while we find a group that's a great fit for you.",
+        message: "We've got all the information we need. You should expect to get an email from us shortly with information about matching you to your group. In the meantime, feel free to ask me any questions you might have about Dad Circles!",
         next_step: "complete",
         profile_updates: {}
       };
