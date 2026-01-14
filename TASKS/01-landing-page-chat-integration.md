@@ -161,25 +161,9 @@ const session_id = uuidv4();
 .input-container { position: sticky; bottom: 0; }
 ```
 
----
-
-## 📚 Files to Modify
-
-- `components/LandingPage.tsx` - Navigation logic
-- `components/ChatInterface.tsx` - Remove admin UI, add mobile styles
-- `App.tsx` - Add `/chat` route
-- `api/leads.ts` - Session creation/retrieval
-- `api/chat.ts` - Optional: Add FAQ mode logic here or in geminiService
-- `services/geminiService.ts` - FAQ mode prompt
-- `types.ts` - Add `email` to UserProfile
-
----
-
 ## ✅ Done When
 
 1. All success criteria checked off
 2. Tested on actual mobile device (not just DevTools)
 3. Deployed to Firebase
 4. Can complete full user journey: landing page → chat → onboarding → FAQ mode
-
-**Time Box:** Aim to have this working end-to-end in under 3 hours. Focus on core functionality first, polish later.
