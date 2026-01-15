@@ -118,54 +118,100 @@ export const UserChatInterface: React.FC = () => {
     setSendDisabled(true);
     setTimeout(() => setSendDisabled(false), 500);
     
+    const t0 = Date.now();
+    console.log('🚀 [0ms] User clicked send');
+    
+    // OPTIMIZATION 1: Add user message optimistically (update UI immediately)
+    const optimisticUserMessage: Message = {
+      id: `temp-${Date.now()}`,
+      session_id: sessionId,
+      role: Role.USER,
+      content: userMsg,
+      timestamp: Date.now()
+    };
+    setMessages(prev => [...prev, optimisticUserMessage]);
+    console.log(`✅ [${Date.now() - t0}ms] User message displayed`);
+    
+    setLoading(true);
+    
     try {
-      await db.addMessage({
-        session_id: sessionId,
-        role: Role.USER,
-        content: userMsg
-      });
-      await loadMessages(sessionId);
-
-      setLoading(true);
-      
-      const profile = await db.getProfile(sessionId);
+      // OPTIMIZATION 2: Use cached profile instead of fetching
+      const t1 = Date.now();
+      const profile = currentProfile || await db.getProfile(sessionId);
       if (!profile) {
         throw new Error('Profile not found');
       }
+      console.log(`✅ [${Date.now() - t0}ms] Profile loaded (took ${Date.now() - t1}ms)`);
       
-      const history = await db.getMessages(sessionId);
+      // OPTIMIZATION 3: Use current messages + new message instead of refetching
+      const history = [...messages, optimisticUserMessage];
+      console.log(`✅ [${Date.now() - t0}ms] History prepared (${history.length} messages)`);
       
+      // OPTIMIZATION 4: Save user message in background (don't wait)
+      db.addMessage({
+        session_id: sessionId,
+        role: Role.USER,
+        content: userMsg
+      }).catch(err => console.error('Background save failed:', err));
+      
+      // Call AI (this is the only thing we need to wait for)
+      const t2 = Date.now();
+      console.log(`⏳ [${Date.now() - t0}ms] Calling AI...`);
       const result = await getAgentResponse(profile, history);
+      console.log(`✅ [${Date.now() - t0}ms] AI responded (took ${Date.now() - t2}ms)`);
 
-      if (result.profile_updates) {
-        await db.updateProfile(sessionId, result.profile_updates);
-      }
-
-      const nextStep = result.next_step as OnboardingStep;
-      await db.updateProfile(sessionId, { 
-        onboarding_step: nextStep,
-        onboarded: nextStep === OnboardingStep.COMPLETE
-      });
-
-      await db.addMessage({
+      // OPTIMIZATION 5: Add AI message optimistically
+      const optimisticAgentMessage: Message = {
+        id: `temp-agent-${Date.now()}`,
         session_id: sessionId,
         role: Role.AGENT,
-        content: result.message
-      });
+        content: result.message,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, optimisticAgentMessage]);
+      setLoading(false);
+      console.log(`✅ [${Date.now() - t0}ms] AI message displayed`);
+      console.log(`🎉 TOTAL TIME: ${Date.now() - t0}ms`);
 
-      await loadMessages(sessionId);
-      await loadProfile(sessionId);
+      // OPTIMIZATION 6: Update profile in memory immediately
+      const profileUpdates = {
+        ...result.profile_updates,
+        onboarding_step: result.next_step as OnboardingStep,
+        onboarded: result.next_step === OnboardingStep.COMPLETE
+      };
+      setCurrentProfile((prev: any) => ({ ...prev, ...profileUpdates }));
+
+      // OPTIMIZATION 7: Save everything in background (don't wait)
+      Promise.all([
+        db.updateProfile(sessionId, profileUpdates),
+        db.addMessage({
+          session_id: sessionId,
+          role: Role.AGENT,
+          content: result.message
+        })
+      ]).catch(err => console.error('Background save failed:', err));
+
     } catch (error) {
       console.error('Error getting response:', error);
+      
       // Fallback response if API fails
-      await db.addMessage({
+      const fallbackMessage: Message = {
+        id: `temp-error-${Date.now()}`,
         session_id: sessionId,
         role: Role.AGENT,
-        content: "I'm having a little trouble processing that. Could you try again or rephrase your response?"
-      });
-      await loadMessages(sessionId);
+        content: "I'm having a little trouble processing that. Could you try again or rephrase your response?",
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, fallbackMessage]);
+      setLoading(false);
+      
+      // Save fallback message in background
+      db.addMessage({
+        session_id: sessionId,
+        role: Role.AGENT,
+        content: fallbackMessage.content
+      }).catch(err => console.error('Background save failed:', err));
     }
-    setLoading(false);
   };
 
   const isComplete = currentProfile?.onboarding_step === OnboardingStep.COMPLETE;

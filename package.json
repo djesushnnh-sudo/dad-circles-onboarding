@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "deploy": "npm run build && firebase deploy",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:preview": "npm run build && firebase hosting:channel:deploy staging",
+    "deploy:live": "firebase hosting:clone dad-circles:staging dad-circles:live",
     "emulator": "firebase emulators:start",
     "emulator:seed": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data"
   },

@@ -124,6 +124,9 @@ CRITICAL:
 - Keep profile_updates empty unless user explicitly wants to update something`;
 
 export const getAgentResponse = async (profile: UserProfile, history: Message[]) => {
+  const apiStartTime = Date.now();
+  console.log('🤖 [AI Service] Starting getAgentResponse');
+  
   // Determine if we should use FAQ mode
   const isFAQMode = profile.onboarding_step === OnboardingStep.COMPLETE && profile.onboarded;
   
@@ -135,6 +138,7 @@ export const getAgentResponse = async (profile: UserProfile, history: Message[])
     preserveRecent: 45 // Keep last 45 messages (recent conversation)
   });
   const processingTime = Date.now() - startTime;
+  console.log(`🤖 [AI Service] Context limited in ${processingTime}ms (${history.length} → ${limitedHistory.length} messages)`);
 
   // Record analytics for monitoring
   if (history.length > 50) {
@@ -221,14 +225,14 @@ CRITICAL:
     throw new Error('Gemini API key not found');
   }
 
-  // Primary model: Gemini 3 Pro Preview (as requested)
-  const primaryModel = { name: 'gemini-3-pro-preview', version: 'v1beta' };
+  // Primary model: Gemini 2.5 Flash (fast and capable)
+  const primaryModel = { name: 'gemini-2.5-flash', version: 'v1beta' };
   
   // Fallback models (after 5 failed attempts with primary)
   const fallbackModels = [
-    { name: 'gemini-1.5-pro', version: 'v1beta' },
-    { name: 'gemini-1.0-pro', version: 'v1' },
-    { name: 'gemini-pro', version: 'v1' }
+    { name: 'gemini-2.5-pro', version: 'v1beta' },
+    { name: 'gemini-1.5-flash', version: 'v1beta' },
+    { name: 'gemini-1.5-pro', version: 'v1beta' }
   ];
 
   let lastError = null;
@@ -236,11 +240,13 @@ CRITICAL:
 
   // First, try Gemini 3 Pro Preview up to 5 times
   for (let attempt = 1; attempt <= maxPrimaryAttempts; attempt++) {
-    console.log(`Trying primary model: ${primaryModel.name} (attempt ${attempt}/${maxPrimaryAttempts})`);
+    console.log(`🤖 [AI Service] Trying primary model: ${primaryModel.name} (attempt ${attempt}/${maxPrimaryAttempts})`);
+    const attemptStart = Date.now();
 
     try {
       const apiUrl = `https://generativelanguage.googleapis.com/${primaryModel.version}/models/${primaryModel.name}:generateContent?key=${apiKey}`;
 
+      const fetchStart = Date.now();
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -254,10 +260,14 @@ CRITICAL:
             temperature: 0.3,
             maxOutputTokens: 512,
             topP: 0.8,
-            topK: 20
+            topK: 20,
+            thinkingConfig: {
+              thinkingBudget: 0  // Disable thinking for faster responses
+            }
           }
         })
       });
+      console.log(`🤖 [AI Service] API fetch completed in ${Date.now() - fetchStart}ms (status: ${response.status})`);
 
       console.log(`${primaryModel.name} - API Response status:`, response.status);
 
@@ -361,6 +371,7 @@ CRITICAL:
           }
 
           console.log(`✅ API Success with primary model ${primaryModel.name} - Parsed result:`, result);
+          console.log(`🎉 [AI Service] Total AI time: ${Date.now() - apiStartTime}ms`);
           return result;
 
         } catch (parseError) {
@@ -445,7 +456,10 @@ CRITICAL:
             temperature: 0.3,
             maxOutputTokens: 512,
             topP: 0.8,
-            topK: 20
+            topK: 20,
+            thinkingConfig: {
+              thinkingBudget: 0  // Disable thinking for faster responses
+            }
           }
         })
       });
