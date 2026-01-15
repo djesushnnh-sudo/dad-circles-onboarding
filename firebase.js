@@ -18,15 +18,12 @@ console.log('All Firebase Config:', firebaseConfig);
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// Connect to Firestore emulator in development mode (Java 21+ is installed)
-// Temporarily disabled for email testing
-/*
+// Connect to Firestore emulator in development mode
 if (import.meta.env.DEV) {
   try {
-    connectFirestoreEmulator(db, 'localhost', 8082);
-    console.log('Connected to Firestore emulator');
+    connectFirestoreEmulator(db, 'localhost', 8083);
+    console.log('🔧 Connected to Firestore emulator on port 8083');
   } catch (error) {
-    console.log('Firestore emulator connection failed or already connected:', error.message);
+    console.log('⚠️ Firestore emulator connection failed or already connected:', error.message);
   }
 }
-*/

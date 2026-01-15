@@ -4,6 +4,8 @@
  * This module handles all email functionality for the DadCircles platform:
  * - Welcome emails sent immediately when users sign up
  * - Follow-up emails sent on a schedule to nurture leads
+ * - Group introduction emails for matched dads
+ * - Daily matching and email processing
  */
 
 import {setGlobalOptions} from "firebase-functions";
@@ -13,6 +15,7 @@ import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import {EmailService} from "./emailService";
 import {DebugLogger} from "./logger";
+import {runDailyMatching, sendPendingGroupEmails} from "./matching";
 
 // Import manual test function
 export {manualEmailTest} from "./manual-test";
@@ -267,5 +270,51 @@ export const testEmail = onSchedule(
       subject: testWelcomeEmail.subject,
       to: testWelcomeEmail.to,
     });
+  }
+);
+
+/**
+ * Daily Matching Function
+ *
+ * Scheduled to run daily at 9 AM UTC.
+ * Scans all cities and runs matching for any city with >= 4 unmatched users in a bucket.
+ */
+export const runDailyMatchingJob = onSchedule(
+  {
+    schedule: "0 9 * * *", // Daily at 9 AM UTC
+    timeZone: "UTC",
+    region: "us-central1",
+  },
+  async () => {
+    try {
+      logger.info("🚀 Starting daily matching job");
+      await runDailyMatching();
+      logger.info("✅ Daily matching job completed successfully");
+    } catch (error) {
+      logger.error("❌ Daily matching job failed:", error);
+    }
+  }
+);
+
+/**
+ * Group Email Processing Function
+ *
+ * Scheduled to run every 2 hours.
+ * Sends introduction emails to newly formed groups.
+ */
+export const processGroupEmails = onSchedule(
+  {
+    schedule: "0 */2 * * *", // Every 2 hours
+    timeZone: "UTC",
+    region: "us-central1",
+  },
+  async () => {
+    try {
+      logger.info("📧 Starting group email processing job");
+      await sendPendingGroupEmails();
+      logger.info("✅ Group email processing job completed successfully");
+    } catch (error) {
+      logger.error("❌ Group email processing job failed:", error);
+    }
   }
 );

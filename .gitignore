@@ -7,6 +7,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Firebase logs
+firebase-debug.log
+firestore-debug.log
+
 node_modules
 dist
 dist-ssr
@@ -22,6 +26,12 @@ dist-ssr
 # Local development scripts (contain API keys)
 dev-local.bat
 dev-local.ps1
+
+# Temporary development files
+check-database.js
+reset-database.js
+seed-database.js
+mobile-test.html
 
 # Editor directories and files
 .vscode/*

@@ -14,7 +14,12 @@
     "deploy:preview": "npm run build && firebase hosting:channel:deploy staging",
     "deploy:live": "firebase hosting:clone dad-circles:staging dad-circles:live",
     "emulator": "firebase emulators:start",
-    "emulator:seed": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data"
+    "emulator:seed": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data",
+    "seed:test": "tsx scripts/seedTestUsers.ts",
+    "clean:test": "tsx scripts/cleanTestUsers.ts",
+    "logs": "node scripts/readLogs.js",
+    "logs:matching": "node scripts/readLogs.js matching",
+    "logs:database": "node scripts/readLogs.js database"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
@@ -34,6 +39,8 @@
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "cross-env": "^10.1.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.7.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

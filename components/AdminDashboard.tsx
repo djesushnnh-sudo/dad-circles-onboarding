@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { database } from '../database';
-import { UserProfile, Message, Role, Lead } from '../types';
+import { UserProfile, Message, Role, Lead, Group, MatchingStats } from '../types';
 
 export const AdminDashboard: React.FC = () => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
@@ -8,13 +8,24 @@ export const AdminDashboard: React.FC = () => {
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [adminInput, setAdminInput] = useState('');
-  const [activeTab, setActiveTab] = useState<'sessions' | 'leads'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'leads' | 'matching'>('sessions');
   const [loading, setLoading] = useState(false);
+  
+  // Matching state
+  const [matchingStats, setMatchingStats] = useState<MatchingStats | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [matchingLoading, setMatchingLoading] = useState(false);
+  const [matchingResult, setMatchingResult] = useState<string>('');
 
   const loadProfiles = async () => {
     try {
-      const allProfiles = await database.getAllProfiles();
-      setProfiles(allProfiles);
+      const response = await fetch('/api/matching/profiles');
+      const data = await response.json();
+      if (data.success) {
+        setProfiles(data.profiles);
+      } else {
+        console.error('Error loading profiles:', data.error);
+      }
     } catch (error) {
       console.error('Error loading profiles:', error);
     }
@@ -29,6 +40,117 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  const loadMatchingData = async () => {
+    try {
+      setMatchingLoading(true);
+      
+      // Load stats and groups in parallel using API endpoints
+      const [statsResponse, groupsResponse] = await Promise.all([
+        fetch('/api/matching/stats').then(res => res.json()).catch(err => {
+          console.error('Error fetching stats:', err);
+          return { success: false, error: err.message };
+        }),
+        fetch('/api/matching/groups').then(res => res.json()).catch(err => {
+          console.error('Error fetching groups:', err);
+          return { success: false, groups: [] };
+        })
+      ]);
+      
+      if (statsResponse.success) {
+        setMatchingStats(statsResponse.stats);
+      } else {
+        console.error('Stats API error:', statsResponse.error);
+      }
+      
+      if (groupsResponse.success) {
+        setGroups(groupsResponse.groups);
+        console.log(`📊 Loaded ${groupsResponse.groups.length} groups from API`);
+      } else {
+        console.error('Groups API error:', groupsResponse.error);
+        setGroups([]);
+      }
+      
+    } catch (error) {
+      console.error('Error loading matching data:', error);
+    } finally {
+      setMatchingLoading(false);
+    }
+  };
+
+  const runMatching = async (testMode: boolean) => {
+    setMatchingLoading(true);
+    setMatchingResult('');
+    
+    try {
+      console.log(`🚀 Running ${testMode ? 'test' : 'production'} matching...`);
+      
+      const response = await fetch('/api/matching/run', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ testMode }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setMatchingResult(`✅ ${data.result.summary}`);
+        console.log('✅ Matching completed successfully:', data.result);
+        
+        // Refresh all data after successful matching
+        await Promise.all([
+          loadMatchingData(),
+          loadProfiles()
+        ]);
+        
+      } else {
+        const errorMsg = `❌ Error: ${data.error || 'Unknown error'}`;
+        setMatchingResult(errorMsg);
+        console.error('❌ Matching failed:', data);
+      }
+    } catch (error) {
+      const errorMsg = `❌ Network Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      console.error('❌ Error running matching:', error);
+      setMatchingResult(errorMsg);
+    }
+    
+    setMatchingLoading(false);
+  };
+
+  const seedTestData = async () => {
+    setMatchingLoading(true);
+    setMatchingResult('');
+    
+    try {
+      // Note: In a real implementation, this would call the seeding script
+      // For now, we'll show a placeholder message
+      setMatchingResult('⚠️ Test data seeding not yet implemented in UI. Use npm run seed:test');
+    } catch (error) {
+      console.error('Error seeding test data:', error);
+      setMatchingResult(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    
+    setMatchingLoading(false);
+  };
+
+  const cleanTestData = async () => {
+    setMatchingLoading(true);
+    setMatchingResult('');
+    
+    try {
+      await database.cleanTestData?.();
+      setMatchingResult('✅ Test data cleaned successfully');
+      await loadMatchingData(); // Refresh data
+      await loadProfiles(); // Refresh profiles
+    } catch (error) {
+      console.error('Error cleaning test data:', error);
+      setMatchingResult(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    
+    setMatchingLoading(false);
+  };
+
   const loadMessages = async (sessionId: string) => {
     try {
       const sessionMessages = await database.getMessages(sessionId);
@@ -41,7 +163,10 @@ export const AdminDashboard: React.FC = () => {
   useEffect(() => {
     loadProfiles();
     loadLeads();
-  }, []);
+    if (activeTab === 'matching') {
+      loadMatchingData();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (selectedSession) {
@@ -93,6 +218,16 @@ export const AdminDashboard: React.FC = () => {
           }`}
         >
           Waitlist Leads ({leads.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('matching')}
+          className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
+            activeTab === 'matching'
+              ? 'border-purple-600 text-purple-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Matching ({groups.length} groups)
         </button>
       </div>
 
@@ -267,7 +402,7 @@ export const AdminDashboard: React.FC = () => {
             )}
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'leads' ? (
         /* Leads Tab */
         <div className="flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden h-full">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
@@ -336,6 +471,196 @@ export const AdminDashboard: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      ) : (
+        /* Matching Tab */
+        <div className="flex flex-col gap-6 h-full">
+          {/* Status Panel */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                  <i className="fas fa-users text-purple-600"></i>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {matchingStats?.total_users || 0}
+                  </div>
+                  <div className="text-sm text-slate-500">Total Eligible Users</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                  <i className="fas fa-check-circle text-green-600"></i>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {matchingStats?.matched_users || 0}
+                  </div>
+                  <div className="text-sm text-slate-500">Matched Users</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                  <i className="fas fa-clock text-amber-600"></i>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {matchingStats?.unmatched_users || 0}
+                  </div>
+                  <div className="text-sm text-slate-500">Unmatched Users</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Actions Panel */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">Matching Actions</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <button
+                onClick={() => runMatching(true)}
+                disabled={matchingLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white px-4 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-flask"></i>
+                Run Test Match
+              </button>
+              
+              <button
+                onClick={() => runMatching(false)}
+                disabled={matchingLoading}
+                className="bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white px-4 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-rocket"></i>
+                Run Production Match
+              </button>
+              
+              <button
+                onClick={seedTestData}
+                disabled={matchingLoading}
+                className="bg-green-600 hover:bg-green-700 disabled:bg-slate-300 text-white px-4 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-seedling"></i>
+                Seed Test Data
+              </button>
+              
+              <button
+                onClick={cleanTestData}
+                disabled={matchingLoading}
+                className="bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white px-4 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-trash"></i>
+                Clear Test Data
+              </button>
+            </div>
+
+            {matchingResult && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+                <div className="text-sm font-mono text-slate-700">{matchingResult}</div>
+              </div>
+            )}
+
+            {matchingLoading && (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                <span className="ml-2 text-slate-600">Processing...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Groups Display */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex-1">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <span className="font-semibold text-slate-700">Formed Groups ({groups.length})</span>
+              <button 
+                onClick={loadMatchingData}
+                className="text-slate-400 hover:text-purple-600 transition p-1"
+                title="Refresh groups"
+              >
+                <i className="fas fa-sync-alt text-xs"></i>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto">
+              {groups.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 italic">
+                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 mx-auto">
+                    <i className="fas fa-users text-2xl text-slate-300"></i>
+                  </div>
+                  <p>No groups formed yet</p>
+                  <p className="text-sm mt-2">Run the matching algorithm to create groups</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {groups.map(group => (
+                    <div key={group.group_id} className="p-4 hover:bg-slate-50 transition">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            group.test_mode ? 'bg-blue-100' : 'bg-purple-100'
+                          }`}>
+                            <i className={`fas fa-users text-sm ${
+                              group.test_mode ? 'text-blue-600' : 'text-purple-600'
+                            }`}></i>
+                          </div>
+                          <div>
+                            <div className="font-medium text-slate-800">{group.name}</div>
+                            <div className="text-sm text-slate-600 flex items-center gap-2">
+                              <i className="fas fa-map-marker-alt text-xs"></i>
+                              {group.location.city}, {group.location.state_code}
+                              <span>&bull;</span>
+                              <span>{group.life_stage}</span>
+                              <span>&bull;</span>
+                              <span>{group.member_ids.length} members</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-slate-400">
+                            {new Date(group.created_at).toLocaleDateString()}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {new Date(group.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className={`px-2 py-1 rounded-full font-medium ${
+                          group.test_mode 
+                            ? 'bg-blue-50 text-blue-700' 
+                            : 'bg-purple-50 text-purple-700'
+                        }`}>
+                          {group.test_mode ? 'Test Group' : 'Production'}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full font-medium ${
+                          group.status === 'active' 
+                            ? 'bg-green-50 text-green-700'
+                            : group.status === 'pending'
+                            ? 'bg-amber-50 text-amber-700'
+                            : 'bg-slate-50 text-slate-700'
+                        }`}>
+                          {group.status}
+                        </span>
+                        <span className="text-slate-400">•</span>
+                        <span className="text-slate-500">
+                          ID: {group.group_id.slice(-8)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
