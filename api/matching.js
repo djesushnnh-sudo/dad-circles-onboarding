@@ -8,7 +8,7 @@
 
 // Import Firebase directly since we can't import the TypeScript database module
 import { initializeApp } from 'firebase/app';
-import { getFirestore, connectFirestoreEmulator, collection, getDocs, query, where, doc, setDoc, writeBatch } from 'firebase/firestore';
+import { getFirestore, connectFirestoreEmulator, collection, getDocs, query, where, doc, setDoc, writeBatch, getDoc } from 'firebase/firestore';
 import Logger from '../utils/logger.js';
 
 // Clear logs at startup for fresh debugging
@@ -226,6 +226,20 @@ async function runRealMatching(city, stateCode, testMode) {
         } else {
           Logger.matching('INFO', `${location.city}, ${location.state_code} - ${lifeStage}: Only ${users.length} users (need ${minGroupSize}+ for group)`);
         }
+      }
+    }
+    
+    // Step 4: Send group introduction emails
+    if (allGroups.length > 0) {
+      Logger.matching('INFO', `📧 Sending introduction emails for ${allGroups.length} groups (${testMode ? 'TEST MODE' : 'PRODUCTION'})`);
+      
+      try {
+        await sendGroupEmailsJS(allGroups, testMode);
+      } catch (emailError) {
+        Logger.error('MATCHING', 'Failed to send group emails (continuing anyway)', {
+          error: emailError.message
+        });
+        // Don't fail the entire matching process if emails fail
       }
     }
     
@@ -729,6 +743,232 @@ async function getProfiles(req, res) {
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+}
+
+/**
+ * Send group introduction emails (JavaScript implementation)
+ */
+async function sendGroupEmailsJS(groups, testMode) {
+  Logger.matching('INFO', `📧 Starting email sending for ${groups.length} groups`);
+  
+  // Import Resend dynamically
+  let Resend;
+  try {
+    const resendModule = await import('resend');
+    Resend = resendModule.Resend;
+  } catch (error) {
+    Logger.error('EMAIL', 'Failed to import Resend module', { error: error.message });
+    return;
+  }
+
+  // Check if API key is configured
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey || apiKey === 'your_resend_api_key_here') {
+    Logger.matching('WARN', '⚠️ RESEND_API_KEY not configured - emails will be simulated');
+    
+    // Simulate email sending in test mode
+    for (const group of groups) {
+      Logger.matching('INFO', `📧 SIMULATED EMAIL for group "${group.name}" to ${group.member_emails.length} members`);
+      
+      // Update group status even in simulation
+      const groupRef = doc(db, 'groups', group.group_id);
+      await setDoc(groupRef, {
+        emailed_member_ids: group.member_emails,
+        introduction_email_sent_at: Date.now(),
+        status: 'active'
+      }, { merge: true });
+    }
+    return;
+  }
+
+  // Initialize Resend
+  const resend = new Resend(apiKey);
+  Logger.matching('INFO', '🔑 Resend initialized with API key');
+
+  // Send emails for each group
+  for (const group of groups) {
+    try {
+      Logger.matching('INFO', `📧 Processing emails for group "${group.name}"`);
+      
+      // Get member details
+      const memberDetails = [];
+      for (const sessionId of group.member_ids) {
+        try {
+          const userDoc = await getDoc(doc(db, 'profiles', sessionId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            if (userData.email) {
+              // Calculate child info
+              let childInfo = 'Dad';
+              if (userData.children && userData.children.length > 0) {
+                const child = userData.children[0];
+                if (child.type === 'expecting') {
+                  childInfo = `Expecting ${child.birth_month}/${child.birth_year}`;
+                } else {
+                  const now = new Date();
+                  const ageInMonths = (now.getFullYear() - child.birth_year) * 12 + 
+                                    (now.getMonth() + 1 - child.birth_month);
+                  if (ageInMonths <= 6) {
+                    childInfo = `${ageInMonths}mo old`;
+                  } else if (ageInMonths <= 36) {
+                    childInfo = `${Math.floor(ageInMonths / 12)}y ${ageInMonths % 12}mo old`;
+                  } else {
+                    childInfo = `${Math.floor(ageInMonths / 12)}y old`;
+                  }
+                }
+              }
+
+              memberDetails.push({
+                email: userData.email,
+                name: userData.email.split('@')[0],
+                childInfo
+              });
+            }
+          }
+        } catch (userError) {
+          Logger.error('EMAIL', `Error getting user details for ${sessionId}`, { error: userError.message });
+        }
+      }
+
+      if (memberDetails.length === 0) {
+        Logger.matching('WARN', `⚠️ No members with email addresses found for group ${group.name}`);
+        continue;
+      }
+
+      Logger.matching('INFO', `📬 Sending emails to ${memberDetails.length} members`);
+
+      // Generate email HTML
+      const membersList = memberDetails.map(member => 
+        `<li><strong>${member.name}</strong> - ${member.childInfo}</li>`
+      ).join('');
+
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Meet Your DadCircles Group</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f8fafc; }
+            .container { max-width: 600px; margin: 0 auto; background-color: white; }
+            .header { background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%); padding: 40px 20px; text-align: center; }
+            .logo { width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 24px; margin-bottom: 20px; }
+            .header h1 { color: white; margin: 0; font-size: 28px; font-weight: 600; }
+            .content { padding: 40px 20px; }
+            .content h2 { color: #1a1a1a; margin-bottom: 20px; }
+            .content p { color: #4a5568; line-height: 1.6; margin-bottom: 20px; }
+            .highlight { background: #faf5ff; border-left: 4px solid #8b5cf6; padding: 16px; margin: 20px 0; border-radius: 4px; }
+            .members-list { background: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; }
+            .members-list ul { margin: 0; padding-left: 20px; }
+            .members-list li { margin-bottom: 8px; color: #374151; }
+            .cta { background: #8b5cf6; color: white; padding: 16px 24px; border-radius: 8px; text-align: center; margin: 30px 0; text-decoration: none; display: block; font-weight: bold; }
+            .footer { background: #f8fafc; padding: 20px; text-align: center; color: #718096; font-size: 14px; }
+            ${testMode ? '.test-banner { background: #fef3c7; border: 2px solid #f59e0b; padding: 12px; text-align: center; color: #92400e; font-weight: bold; }' : ''}
+          </style>
+        </head>
+        <body>
+          ${testMode ? '<div class="test-banner">🧪 THIS IS A TEST EMAIL - No real group has been formed</div>' : ''}
+          <div class="container">
+            <div class="header">
+              <div class="logo">DC</div>
+              <h1>Meet Your Group!</h1>
+            </div>
+            
+            <div class="content">
+              <h2>Welcome to ${group.name}! 🎉</h2>
+              
+              <p>Great news! We've matched you with other dads in your area who are at a similar stage in their parenting journey.</p>
+              
+              <div class="highlight">
+                <strong>Your Group Members:</strong><br>
+                You've been matched based on your location and where you are in your parenting journey. Here's who you'll be connecting with:
+              </div>
+              
+              <div class="members-list">
+                <h3 style="margin-top: 0; color: #374151;">Group Members:</h3>
+                <ul>
+                  ${membersList}
+                </ul>
+              </div>
+              
+              <p><strong>What's next?</strong></p>
+              <ul>
+                <li>Reply all to this email to introduce yourself to the group</li>
+                <li>Share a bit about yourself and what you're looking forward to</li>
+                <li>Start planning your first meetup or playdate</li>
+                <li>Exchange contact information if you'd like</li>
+              </ul>
+              
+              <div class="cta">
+                Reply All to Say Hi! 👋
+              </div>
+              
+              <p>We're excited to see the connections you'll make. Remember, this is just the beginning - your group can grow and evolve as you get to know each other.</p>
+              
+              <p>If you have any questions or need support, just reply to this email.</p>
+              
+              <p><strong>The DadCircles Team</strong></p>
+            </div>
+            
+            <div class="footer">
+              <p>DadCircles - Connecting fathers, building community</p>
+              <p>Questions? Just reply to this email - we're here to help!</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const emailedMembers = [];
+
+      // Send to each member (with delay to avoid rate limiting)
+      for (let i = 0; i < memberDetails.length; i++) {
+        const member = memberDetails[i];
+        try {
+          Logger.matching('INFO', `📤 Sending email to ${member.email}`);
+          
+          const result = await resend.emails.send({
+            from: 'DadCircles <onboarding@resend.dev>',
+            to: member.email,
+            subject: `Meet Your DadCircles Group: ${group.name}${testMode ? ' (TEST)' : ''}`,
+            html: emailHtml,
+          });
+
+          if (result.error) {
+            Logger.error('EMAIL', `Failed to send email to ${member.email}`, { error: result.error });
+          } else {
+            Logger.matching('INFO', `✅ Email sent successfully to ${member.email}`, { emailId: result.data?.id });
+            emailedMembers.push(member.email);
+          }
+          
+          // Add delay between emails to avoid rate limiting (500ms = 2 emails per second max)
+          if (i < memberDetails.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 600));
+          }
+        } catch (emailError) {
+          Logger.error('EMAIL', `Error sending email to ${member.email}`, { error: emailError.message });
+        }
+      }
+
+      // Update group with email results
+      if (emailedMembers.length > 0) {
+        const groupRef = doc(db, 'groups', group.group_id);
+        await setDoc(groupRef, {
+          emailed_member_ids: emailedMembers,
+          introduction_email_sent_at: Date.now(),
+          status: 'active'
+        }, { merge: true });
+
+        Logger.matching('INFO', `✅ Updated group "${group.name}" - emailed ${emailedMembers.length} members`);
+      }
+
+    } catch (groupError) {
+      Logger.error('EMAIL', `Error processing emails for group ${group.name}`, { error: groupError.message });
+    }
+  }
+
+  Logger.matching('INFO', '📧 Group email processing complete');
 }
 
 /**

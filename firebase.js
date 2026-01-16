@@ -18,12 +18,21 @@ console.log('All Firebase Config:', firebaseConfig);
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// Connect to Firestore emulator in development mode
-if (import.meta.env.DEV) {
+// Track if we're using the emulator
+export let isUsingEmulator = false;
+
+// Connect to Firestore emulator in development mode OR when running locally
+// Check if we're on localhost (which means we're testing locally with emulator)
+const isLocalhost = window.location.hostname === 'localhost' || 
+                    window.location.hostname === '127.0.0.1';
+
+if (import.meta.env.DEV || isLocalhost) {
   try {
     connectFirestoreEmulator(db, 'localhost', 8083);
+    isUsingEmulator = true;
     console.log('🔧 Connected to Firestore emulator on port 8083');
   } catch (error) {
     console.log('⚠️ Firestore emulator connection failed or already connected:', error.message);
   }
 }
+

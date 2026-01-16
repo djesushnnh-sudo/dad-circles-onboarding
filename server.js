@@ -5,6 +5,13 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+// Load environment variables from functions/.env
+dotenv.config({ path: './functions/.env' });
+
+console.log('🔑 Environment variables loaded');
+console.log('📧 RESEND_API_KEY configured:', !!process.env.RESEND_API_KEY);
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -16,7 +23,7 @@ const __dirname = path.dirname(__filename);
 import { setupMatchingRoutes } from './api/matching.js';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001; // Changed to 3001 so Vite can use 3000
 
 // Middleware
 app.use(cors());

@@ -16,6 +16,8 @@ export const AdminDashboard: React.FC = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [matchingLoading, setMatchingLoading] = useState(false);
   const [matchingResult, setMatchingResult] = useState<string>('');
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+  const [groupMembers, setGroupMembers] = useState<Record<string, UserProfile[]>>({});
 
   const loadProfiles = async () => {
     try {
@@ -44,13 +46,16 @@ export const AdminDashboard: React.FC = () => {
     try {
       setMatchingLoading(true);
       
+      // Add cache-busting timestamp to prevent stale data
+      const timestamp = Date.now();
+      
       // Load stats and groups in parallel using API endpoints
       const [statsResponse, groupsResponse] = await Promise.all([
-        fetch('/api/matching/stats').then(res => res.json()).catch(err => {
+        fetch(`/api/matching/stats?t=${timestamp}`).then(res => res.json()).catch(err => {
           console.error('Error fetching stats:', err);
           return { success: false, error: err.message };
         }),
-        fetch('/api/matching/groups').then(res => res.json()).catch(err => {
+        fetch(`/api/matching/groups?t=${timestamp}`).then(res => res.json()).catch(err => {
           console.error('Error fetching groups:', err);
           return { success: false, groups: [] };
         })
@@ -63,8 +68,8 @@ export const AdminDashboard: React.FC = () => {
       }
       
       if (groupsResponse.success) {
+        console.log('✅ Setting groups:', groupsResponse.groups.length);
         setGroups(groupsResponse.groups);
-        console.log(`📊 Loaded ${groupsResponse.groups.length} groups from API`);
       } else {
         console.error('Groups API error:', groupsResponse.error);
         setGroups([]);
@@ -96,7 +101,7 @@ export const AdminDashboard: React.FC = () => {
       
       if (data.success) {
         setMatchingResult(`✅ ${data.result.summary}`);
-        console.log('✅ Matching completed successfully:', data.result);
+        console.log('✅ Matching completed successfully');
         
         // Refresh all data after successful matching
         await Promise.all([
@@ -123,9 +128,15 @@ export const AdminDashboard: React.FC = () => {
     setMatchingResult('');
     
     try {
-      // Note: In a real implementation, this would call the seeding script
-      // For now, we'll show a placeholder message
-      setMatchingResult('⚠️ Test data seeding not yet implemented in UI. Use npm run seed:test');
+      await database.seedTestData?.();
+      setMatchingResult('✅ Successfully seeded 50 test users!');
+      
+      // Wait a moment for the database to fully commit
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Refresh data
+      await loadMatchingData();
+      await loadProfiles();
     } catch (error) {
       console.error('Error seeding test data:', error);
       setMatchingResult(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -141,14 +152,73 @@ export const AdminDashboard: React.FC = () => {
     try {
       await database.cleanTestData?.();
       setMatchingResult('✅ Test data cleaned successfully');
-      await loadMatchingData(); // Refresh data
-      await loadProfiles(); // Refresh profiles
+      
+      // Wait a moment for the database to fully commit
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Refresh data
+      await loadMatchingData();
+      await loadProfiles();
     } catch (error) {
       console.error('Error cleaning test data:', error);
       setMatchingResult(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     
     setMatchingLoading(false);
+  };
+
+  const loadGroupMembers = async (groupId: string, memberIds: string[]) => {
+    // If already expanded, collapse it
+    if (expandedGroupId === groupId) {
+      setExpandedGroupId(null);
+      return;
+    }
+
+    // If members already loaded, just expand
+    if (groupMembers[groupId]) {
+      setExpandedGroupId(groupId);
+      return;
+    }
+
+    // Load member profiles
+    try {
+      const memberProfiles: UserProfile[] = [];
+      for (const sessionId of memberIds) {
+        try {
+          const profile = await database.getProfile(sessionId);
+          if (profile) {
+            memberProfiles.push(profile);
+          }
+        } catch (err) {
+          console.error(`Failed to load profile for ${sessionId}:`, err);
+        }
+      }
+
+      setGroupMembers(prev => ({
+        ...prev,
+        [groupId]: memberProfiles
+      }));
+      setExpandedGroupId(groupId);
+    } catch (error) {
+      console.error('Error loading group members:', error);
+    }
+  };
+
+  const calculateChildAge = (birthMonth: number, birthYear: number): string => {
+    const now = new Date();
+    const ageInMonths = (now.getFullYear() - birthYear) * 12 + (now.getMonth() + 1 - birthMonth);
+    
+    if (ageInMonths < 0) {
+      return `Due ${Math.abs(ageInMonths)}mo`;
+    } else if (ageInMonths === 0) {
+      return 'Newborn';
+    } else if (ageInMonths < 12) {
+      return `${ageInMonths}mo`;
+    } else {
+      const years = Math.floor(ageInMonths / 12);
+      const months = ageInMonths % 12;
+      return months > 0 ? `${years}y ${months}mo` : `${years}y`;
+    }
   };
 
   const loadMessages = async (sessionId: string) => {
@@ -475,7 +545,7 @@ export const AdminDashboard: React.FC = () => {
         </div>
       ) : (
         /* Matching Tab */
-        <div className="flex flex-col gap-6 h-full">
+        <div className="flex flex-col gap-6">
           {/* Status Panel */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -578,7 +648,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           {/* Groups Display */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex-1">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
               <span className="font-semibold text-slate-700">Formed Groups ({groups.length})</span>
               <button 
@@ -590,7 +660,7 @@ export const AdminDashboard: React.FC = () => {
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto">
+            <div>
               {groups.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 italic">
                   <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 mx-auto">
@@ -601,63 +671,176 @@ export const AdminDashboard: React.FC = () => {
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
-                  {groups.map(group => (
-                    <div key={group.group_id} className="p-4 hover:bg-slate-50 transition">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                            group.test_mode ? 'bg-blue-100' : 'bg-purple-100'
-                          }`}>
-                            <i className={`fas fa-users text-sm ${
-                              group.test_mode ? 'text-blue-600' : 'text-purple-600'
-                            }`}></i>
-                          </div>
-                          <div>
-                            <div className="font-medium text-slate-800">{group.name}</div>
-                            <div className="text-sm text-slate-600 flex items-center gap-2">
-                              <i className="fas fa-map-marker-alt text-xs"></i>
-                              {group.location.city}, {group.location.state_code}
-                              <span>&bull;</span>
-                              <span>{group.life_stage}</span>
-                              <span>&bull;</span>
-                              <span>{group.member_ids.length} members</span>
+                  {groups.map(group => {
+                    const isExpanded = expandedGroupId === group.group_id;
+                    const members = groupMembers[group.group_id] || [];
+                    
+                    return (
+                      <div key={group.group_id} className="hover:bg-slate-50 transition">
+                        <button
+                          onClick={() => loadGroupMembers(group.group_id, group.member_ids)}
+                          className="w-full p-4 text-left"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                group.test_mode ? 'bg-blue-100' : 'bg-purple-100'
+                              }`}>
+                                <i className={`fas fa-users text-sm ${
+                                  group.test_mode ? 'text-blue-600' : 'text-purple-600'
+                                }`}></i>
+                              </div>
+                              <div>
+                                <div className="font-medium text-slate-800 flex items-center gap-2">
+                                  {group.name}
+                                  <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-xs text-slate-400`}></i>
+                                </div>
+                                <div className="text-sm text-slate-600 flex items-center gap-2">
+                                  <i className="fas fa-map-marker-alt text-xs"></i>
+                                  {group.location.city}, {group.location.state_code}
+                                  <span>&bull;</span>
+                                  <span>{group.life_stage}</span>
+                                  <span>&bull;</span>
+                                  <span>{group.member_ids.length} members</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs text-slate-400">
+                                {new Date(group.created_at).toLocaleDateString()}
+                              </div>
+                              <div className="text-xs text-slate-400">
+                                {new Date(group.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xs text-slate-400">
-                            {new Date(group.created_at).toLocaleDateString()}
+                          
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className={`px-2 py-1 rounded-full font-medium ${
+                              group.test_mode 
+                                ? 'bg-blue-50 text-blue-700' 
+                                : 'bg-purple-50 text-purple-700'
+                            }`}>
+                              {group.test_mode ? 'Test Group' : 'Production'}
+                            </span>
+                            <span className={`px-2 py-1 rounded-full font-medium ${
+                              group.status === 'active' 
+                                ? 'bg-green-50 text-green-700'
+                                : group.status === 'pending'
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-slate-50 text-slate-700'
+                            }`}>
+                              {group.status}
+                            </span>
+                            <span className="text-slate-400">•</span>
+                            <span className="text-slate-500">
+                              ID: {group.group_id.slice(-8)}
+                            </span>
                           </div>
-                          <div className="text-xs text-slate-400">
-                            {new Date(group.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </button>
+
+                        {/* Expanded Member Details */}
+                        {isExpanded && (
+                          <div className="px-4 pb-4 bg-slate-50/50">
+                            <div className="border-t border-slate-200 pt-3 mt-2">
+                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
+                                Group Members ({members.length})
+                              </div>
+                              
+                              {members.length === 0 ? (
+                                <div className="text-sm text-slate-400 italic py-2">
+                                  Loading member details...
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {members.map((member, idx) => {
+                                    const child = member.children?.[0];
+                                    const childAge = child 
+                                      ? calculateChildAge(child.birth_month, child.birth_year)
+                                      : 'N/A';
+                                    
+                                    return (
+                                      <div 
+                                        key={member.session_id} 
+                                        className="bg-white rounded-lg p-3 border border-slate-200 text-sm"
+                                      >
+                                        <div className="flex justify-between items-start mb-2">
+                                          <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                                              <span className="text-xs font-bold text-slate-600">
+                                                {idx + 1}
+                                              </span>
+                                            </div>
+                                            <div>
+                                              <div className="font-medium text-slate-800">
+                                                {member.email || member.session_id}
+                                              </div>
+                                              <div className="text-xs text-slate-500">
+                                                Session: {member.session_id.slice(-8)}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="text-right">
+                                            <div className="text-xs font-semibold text-slate-700">
+                                              {child?.type === 'expecting' ? '🤰 ' : '👶 '}
+                                              {childAge}
+                                            </div>
+                                            {child?.gender && (
+                                              <div className="text-xs text-slate-500">
+                                                {child.gender}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Child Details */}
+                                        {child && (
+                                          <div className="text-xs text-slate-600 space-y-1">
+                                            <div className="flex items-center gap-1.5">
+                                              <i className="fas fa-calendar text-[10px] opacity-60"></i>
+                                              {child.type === 'expecting' 
+                                                ? `Due: ${child.birth_month}/${child.birth_year}`
+                                                : `Born: ${child.birth_month}/${child.birth_year}`
+                                              }
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Interests */}
+                                        {member.interests && member.interests.length > 0 && (
+                                          <div className="mt-2 pt-2 border-t border-slate-100">
+                                            <div className="text-xs text-slate-500 mb-1">Interests:</div>
+                                            <div className="flex flex-wrap gap-1">
+                                              {member.interests.map((interest, i) => (
+                                                <span 
+                                                  key={i}
+                                                  className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full text-[10px]"
+                                                >
+                                                  {interest}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Siblings */}
+                                        {member.siblings && member.siblings.length > 0 && (
+                                          <div className="mt-2 text-xs text-slate-500">
+                                            <i className="fas fa-users text-[10px] opacity-60 mr-1"></i>
+                                            {member.siblings.length} other child{member.siblings.length !== 1 ? 'ren' : ''}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
-                      
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className={`px-2 py-1 rounded-full font-medium ${
-                          group.test_mode 
-                            ? 'bg-blue-50 text-blue-700' 
-                            : 'bg-purple-50 text-purple-700'
-                        }`}>
-                          {group.test_mode ? 'Test Group' : 'Production'}
-                        </span>
-                        <span className={`px-2 py-1 rounded-full font-medium ${
-                          group.status === 'active' 
-                            ? 'bg-green-50 text-green-700'
-                            : group.status === 'pending'
-                            ? 'bg-amber-50 text-amber-700'
-                            : 'bg-slate-50 text-slate-700'
-                        }`}>
-                          {group.status}
-                        </span>
-                        <span className="text-slate-400">•</span>
-                        <span className="text-slate-500">
-                          ID: {group.group_id.slice(-8)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
